@@ -281,7 +281,6 @@ class GraphTest extends TestCase {
 
         $history = $this->graph->get_audit_history('node', 'node1');
         $deleteLogId = $history[0]['id'];
-        print("Delete Log ID: " . $deleteLogId);
         $result = $this->graph->restore_entity('node', 'node1', $deleteLogId);
 
         $this->assertTrue($result);
@@ -344,26 +343,26 @@ class GraphTest extends TestCase {
     public function testSetNodeStatusSuccess(): void {
         $this->graph->add_node('node1', ['label' => 'Test Node']);
 
-        $result = $this->graph->set_node_status('node1', 'online');
+        $result = $this->graph->set_node_status('node1', 'healthy');
 
         $this->assertTrue($result);
     }
 
     public function testSetNodeStatusNonexistentNode(): void {
-        $result = $this->graph->set_node_status('nonexistent', 'online');
+        $result = $this->graph->set_node_status('nonexistent', 'healthy');
 
         $this->assertFalse($result);
     }
 
     public function testGetNodeStatus(): void {
         $this->graph->add_node('node1', ['label' => 'Test Node']);
-        $this->graph->set_node_status('node1', 'online');
+        $this->graph->set_node_status('node1', 'healthy');
 
         $status = $this->graph->get_node_status('node1');
 
         $this->assertNotNull($status);
         $this->assertEquals('node1', $status->get_node_id());
-        $this->assertEquals('online', $status->get_status());
+        $this->assertEquals('healthy', $status->get_status());
         $this->assertNotEmpty($status->get_created_at());
     }
 
@@ -375,30 +374,30 @@ class GraphTest extends TestCase {
 
     public function testGetNodeStatusReturnsLatest(): void {
         $this->graph->add_node('node1', ['label' => 'Test Node']);
-        $this->graph->set_node_status('node1', 'online');
+        $this->graph->set_node_status('node1', 'healthy');
         sleep(1);
-        $this->graph->set_node_status('node1', 'offline');
+        $this->graph->set_node_status('node1', 'unhealthy');
 
         $status = $this->graph->get_node_status('node1');
 
         $this->assertNotNull($status);
-        $this->assertEquals('offline', $status->get_status());
+        $this->assertEquals('unhealthy', $status->get_status());
     }
 
     public function testGetNodeStatusHistory(): void {
         $this->graph->add_node('node1', ['label' => 'Test Node']);
-        $this->graph->set_node_status('node1', 'online');
+        $this->graph->set_node_status('node1', 'healthy');
         sleep(1);
-        $this->graph->set_node_status('node1', 'offline');
+        $this->graph->set_node_status('node1', 'unhealthy');
         sleep(1);
-        $this->graph->set_node_status('node1', 'online');
+        $this->graph->set_node_status('node1', 'maintenance');
 
         $history = $this->graph->get_node_status_history('node1');
 
         $this->assertCount(3, $history);
-        $this->assertEquals('online', $history[0]->get_status());
-        $this->assertEquals('offline', $history[1]->get_status());
-        $this->assertEquals('online', $history[2]->get_status());
+        $this->assertEquals('maintenance', $history[0]->get_status());
+        $this->assertEquals('unhealthy', $history[1]->get_status());
+        $this->assertEquals('healthy', $history[2]->get_status());
     }
 
     public function testGetNodeStatusHistoryEmpty(): void {
@@ -412,9 +411,9 @@ class GraphTest extends TestCase {
         $this->graph->add_node('node2', ['label' => 'Node 2']);
         $this->graph->add_node('node3', ['label' => 'Node 3']);
 
-        $this->graph->set_node_status('node1', 'online');
-        $this->graph->set_node_status('node2', 'offline');
-        $this->graph->set_node_status('node3', 'pending');
+        $this->graph->set_node_status('node1', 'healthy');
+        $this->graph->set_node_status('node2', 'unhealthy');
+        $this->graph->set_node_status('node3', 'maintenance');
 
         $statuses = $this->graph->status();
 
@@ -430,20 +429,20 @@ class GraphTest extends TestCase {
 
     public function testGetAllNodeStatusesReturnsLatestOnly(): void {
         $this->graph->add_node('node1', ['label' => 'Node 1']);
-        $this->graph->set_node_status('node1', 'online');
+        $this->graph->set_node_status('node1', 'healthy');
         sleep(1);
-        $this->graph->set_node_status('node1', 'offline');
+        $this->graph->set_node_status('node1', 'unhealthy');
 
         $statuses = $this->graph->status();
 
         $this->assertCount(1, $statuses);
-        $this->assertEquals('offline', $statuses[0]->get_status());
+        $this->assertEquals('unhealthy', $statuses[0]->get_status());
     }
 
     public function testGetAllNodeStatusesExcludesNodesWithoutStatus(): void {
         $this->graph->add_node('node1', ['label' => 'Node 1']);
         $this->graph->add_node('node2', ['label' => 'Node 2']);
-        $this->graph->set_node_status('node1', 'online');
+        $this->graph->set_node_status('node1', 'healthy');
 
         $statuses = $this->graph->status();
 
@@ -453,7 +452,7 @@ class GraphTest extends TestCase {
 
     public function testNodeStatusToArray(): void {
         $this->graph->add_node('node1', ['label' => 'Test Node']);
-        $this->graph->set_node_status('node1', 'online');
+        $this->graph->set_node_status('node1', 'unknown');
 
         $status = $this->graph->get_node_status('node1');
         $array = $status->to_array();
@@ -463,6 +462,6 @@ class GraphTest extends TestCase {
         $this->assertArrayHasKey('status', $array);
         $this->assertArrayHasKey('created_at', $array);
         $this->assertEquals('node1', $array['node_id']);
-        $this->assertEquals('online', $array['status']);
+        $this->assertEquals('unknown', $array['status']);
     }
 }

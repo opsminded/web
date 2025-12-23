@@ -302,6 +302,11 @@ try {
         if ($method === 'GET' && count($segments) === 2) {
             send_response(200, $api->getAllNodeStatuses());
         }
+
+        // GET /api.php/status/allowed - Get allowed status values
+        if ($method === 'GET' && count($segments) === 3 && $segments[2] === 'allowed') {
+            send_response(200, $api->getAllowedStatuses());
+        }
     }
 
     // Node status operations (within nodes routes)

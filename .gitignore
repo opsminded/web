@@ -2,3 +2,4 @@ phpunit.phar
 composer.phar
 coverrep/
 .phpunit.cache/
+./coverrep/

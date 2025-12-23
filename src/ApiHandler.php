@@ -9,6 +9,9 @@ namespace Internet\Graph;
 class ApiHandler {
     private Graph $graph;
 
+    // Allowed node statuses
+    private const ALLOWED_STATUSES = ['unknown', 'healthy', 'unhealthy', 'maintenance'];
+
     public function __construct(Graph $graph) {
         $this->graph = $graph;
     }
@@ -208,6 +211,13 @@ class ApiHandler {
     }
 
     /**
+     * Get allowed status values
+     */
+    public function getAllowedStatuses(): array {
+        return ['allowed_statuses' => self::ALLOWED_STATUSES];
+    }
+
+    /**
      * Get status of all nodes
      */
     public function getAllNodeStatuses(): array {
@@ -241,6 +251,15 @@ class ApiHandler {
      * Set status of a node
      */
     public function setNodeStatus(string $node_id, string $status): array {
+        // Validate status
+        if (!in_array($status, self::ALLOWED_STATUSES, true)) {
+            return [
+                'success' => false,
+                'error' => 'Invalid status. Allowed values: ' . implode(', ', self::ALLOWED_STATUSES),
+                'code' => 400
+            ];
+        }
+
         if ($this->graph->set_node_status($node_id, $status)) {
             return [
                 'success' => true,
