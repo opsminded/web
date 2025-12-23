@@ -340,4 +340,129 @@ class GraphTest extends TestCase {
         $this->assertEquals('Test Node', $nodeData['label']);
         $this->assertEquals('red', $nodeData['color']);
     }
+
+    public function testSetNodeStatusSuccess(): void {
+        $this->graph->add_node('node1', ['label' => 'Test Node']);
+
+        $result = $this->graph->set_node_status('node1', 'online');
+
+        $this->assertTrue($result);
+    }
+
+    public function testSetNodeStatusNonexistentNode(): void {
+        $result = $this->graph->set_node_status('nonexistent', 'online');
+
+        $this->assertFalse($result);
+    }
+
+    public function testGetNodeStatus(): void {
+        $this->graph->add_node('node1', ['label' => 'Test Node']);
+        $this->graph->set_node_status('node1', 'online');
+
+        $status = $this->graph->get_node_status('node1');
+
+        $this->assertNotNull($status);
+        $this->assertEquals('node1', $status->get_node_id());
+        $this->assertEquals('online', $status->get_status());
+        $this->assertNotEmpty($status->get_created_at());
+    }
+
+    public function testGetNodeStatusNonexistent(): void {
+        $status = $this->graph->get_node_status('nonexistent');
+
+        $this->assertNull($status);
+    }
+
+    public function testGetNodeStatusReturnsLatest(): void {
+        $this->graph->add_node('node1', ['label' => 'Test Node']);
+        $this->graph->set_node_status('node1', 'online');
+        sleep(1);
+        $this->graph->set_node_status('node1', 'offline');
+
+        $status = $this->graph->get_node_status('node1');
+
+        $this->assertNotNull($status);
+        $this->assertEquals('offline', $status->get_status());
+    }
+
+    public function testGetNodeStatusHistory(): void {
+        $this->graph->add_node('node1', ['label' => 'Test Node']);
+        $this->graph->set_node_status('node1', 'online');
+        sleep(1);
+        $this->graph->set_node_status('node1', 'offline');
+        sleep(1);
+        $this->graph->set_node_status('node1', 'online');
+
+        $history = $this->graph->get_node_status_history('node1');
+
+        $this->assertCount(3, $history);
+        $this->assertEquals('online', $history[0]->get_status());
+        $this->assertEquals('offline', $history[1]->get_status());
+        $this->assertEquals('online', $history[2]->get_status());
+    }
+
+    public function testGetNodeStatusHistoryEmpty(): void {
+        $history = $this->graph->get_node_status_history('nonexistent');
+
+        $this->assertEmpty($history);
+    }
+
+    public function testGetAllNodeStatuses(): void {
+        $this->graph->add_node('node1', ['label' => 'Node 1']);
+        $this->graph->add_node('node2', ['label' => 'Node 2']);
+        $this->graph->add_node('node3', ['label' => 'Node 3']);
+
+        $this->graph->set_node_status('node1', 'online');
+        $this->graph->set_node_status('node2', 'offline');
+        $this->graph->set_node_status('node3', 'pending');
+
+        $statuses = $this->graph->status();
+
+        $this->assertCount(3, $statuses);
+
+        $statusArray = array_map(fn($s) => $s->to_array(), $statuses);
+        $nodeIds = array_column($statusArray, 'node_id');
+
+        $this->assertContains('node1', $nodeIds);
+        $this->assertContains('node2', $nodeIds);
+        $this->assertContains('node3', $nodeIds);
+    }
+
+    public function testGetAllNodeStatusesReturnsLatestOnly(): void {
+        $this->graph->add_node('node1', ['label' => 'Node 1']);
+        $this->graph->set_node_status('node1', 'online');
+        sleep(1);
+        $this->graph->set_node_status('node1', 'offline');
+
+        $statuses = $this->graph->status();
+
+        $this->assertCount(1, $statuses);
+        $this->assertEquals('offline', $statuses[0]->get_status());
+    }
+
+    public function testGetAllNodeStatusesExcludesNodesWithoutStatus(): void {
+        $this->graph->add_node('node1', ['label' => 'Node 1']);
+        $this->graph->add_node('node2', ['label' => 'Node 2']);
+        $this->graph->set_node_status('node1', 'online');
+
+        $statuses = $this->graph->status();
+
+        $this->assertCount(1, $statuses);
+        $this->assertEquals('node1', $statuses[0]->get_node_id());
+    }
+
+    public function testNodeStatusToArray(): void {
+        $this->graph->add_node('node1', ['label' => 'Test Node']);
+        $this->graph->set_node_status('node1', 'online');
+
+        $status = $this->graph->get_node_status('node1');
+        $array = $status->to_array();
+
+        $this->assertIsArray($array);
+        $this->assertArrayHasKey('node_id', $array);
+        $this->assertArrayHasKey('status', $array);
+        $this->assertArrayHasKey('created_at', $array);
+        $this->assertEquals('node1', $array['node_id']);
+        $this->assertEquals('online', $array['status']);
+    }
 }

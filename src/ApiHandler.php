@@ -206,4 +206,64 @@ class ApiHandler {
             'code' => 400
         ];
     }
+
+    /**
+     * Get status of all nodes
+     */
+    public function getAllNodeStatuses(): array {
+        $statuses = $this->graph->status();
+        $result = [];
+        foreach ($statuses as $status) {
+            $result[] = $status->to_array();
+        }
+        return ['statuses' => $result];
+    }
+
+    /**
+     * Get status of a specific node
+     */
+    public function getNodeStatus(string $node_id): array {
+        $status = $this->graph->get_node_status($node_id);
+        if ($status !== null) {
+            return [
+                'success' => true,
+                'data' => $status->to_array()
+            ];
+        }
+        return [
+            'success' => false,
+            'error' => 'No status found for node',
+            'code' => 404
+        ];
+    }
+
+    /**
+     * Set status of a node
+     */
+    public function setNodeStatus(string $node_id, string $status): array {
+        if ($this->graph->set_node_status($node_id, $status)) {
+            return [
+                'success' => true,
+                'message' => 'Node status set successfully',
+                'data' => ['node_id' => $node_id, 'status' => $status]
+            ];
+        }
+        return [
+            'success' => false,
+            'error' => 'Failed to set node status (node may not exist)',
+            'code' => 404
+        ];
+    }
+
+    /**
+     * Get status history of a node
+     */
+    public function getNodeStatusHistory(string $node_id): array {
+        $history = $this->graph->get_node_status_history($node_id);
+        $result = [];
+        foreach ($history as $status) {
+            $result[] = $status->to_array();
+        }
+        return ['history' => $result];
+    }
 }

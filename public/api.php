@@ -8,10 +8,10 @@
  *                Logged in audit trail as user 'anonymous'
  *
  * 2. Basic Auth - Username/password authentication for all operations
- *                 Configure users in $VALID_USERS array below
+ *                 Configure users in $valid_users array below
  *
  * 3. Bearer Token - Token-based authentication for automations
- *                   Configure tokens in $VALID_BEARER_TOKENS array below
+ *                   Configure tokens in $valid_bearer_tokens array below
  *
  * State-changing operations (POST, PUT, DELETE, PATCH) REQUIRE authentication.
  * Read-only operations (GET) can be performed anonymously.
@@ -22,10 +22,11 @@ require_once __DIR__ . '/../vendor/autoload.php';
 use Internet\Graph\Graph;
 use Internet\Graph\AuditContext;
 use Internet\Graph\ApiHandler;
+use Internet\Graph\Authenticator;
 
 // Configuration: Valid Bearer Tokens for automation
 // Format: 'token' => 'user_identifier'
-$VALID_BEARER_TOKENS = [
+$valid_bearer_tokens = [
     'automation_token_123456789' => 'automation_bot',
     'ci_cd_token_987654321' => 'ci_cd_system',
     // Add more automation tokens here
@@ -34,7 +35,7 @@ $VALID_BEARER_TOKENS = [
 // Configuration: Valid Basic Auth credentials
 // Format: 'username' => 'password_hash'
 // Generate hash with: password_hash('your_password', PASSWORD_DEFAULT)
-$VALID_USERS = [
+$valid_users = [
     'admin' => '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password: 'password'
     // Add more users here
 ];
@@ -51,55 +52,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// Authentication
-function authenticate(): ?string {
-    global $VALID_BEARER_TOKENS, $VALID_USERS;
-
-    // Check for Authorization header
-    $auth_header = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? null;
-
-    if ($auth_header === null) {
-        // Check alternative header locations
-        if (function_exists('apache_request_headers')) {
-            $headers = apache_request_headers();
-            $auth_header = $headers['Authorization'] ?? null;
-        }
-    }
-
-    if ($auth_header === null) {
-        return null;
-    }
-
-    // Check for Bearer token (for automations)
-    if (preg_match('/Bearer\s+(.+)/i', $auth_header, $matches)) {
-        $token = $matches[1];
-
-        if (isset($VALID_BEARER_TOKENS[$token])) {
-            return $VALID_BEARER_TOKENS[$token];
-        }
-
-        return null;
-    }
-
-    // Check for Basic Auth
-    if (preg_match('/Basic\s+(.+)/i', $auth_header, $matches)) {
-        $credentials = base64_decode($matches[1]);
-        list($username, $password) = explode(':', $credentials, 2);
-
-        if (isset($VALID_USERS[$username])) {
-            if (password_verify($password, $VALID_USERS[$username])) {
-                return $username;
-            }
-        }
-
-        return null;
-    }
-
-    return null;
-}
+// Initialize authenticator
+$authenticator = new Authenticator($valid_bearer_tokens, $valid_users);
 
 // Authenticate the request
-$user_id = authenticate();
+$user_id = $authenticator->authenticate();
 
 // Get request method
 $method = $_SERVER['REQUEST_METHOD'];
@@ -334,6 +291,49 @@ try {
             }
 
             $result = $api->restoreToTimestamp($input['timestamp']);
+            handle_api_result($result);
+        }
+    }
+
+    // Status operations
+    if (count($segments) >= 2 && $segments[1] === 'status') {
+
+        // GET /api.php/status - Get all node statuses
+        if ($method === 'GET' && count($segments) === 2) {
+            send_response(200, $api->getAllNodeStatuses());
+        }
+    }
+
+    // Node status operations (within nodes routes)
+    if (count($segments) >= 2 && $segments[1] === 'nodes') {
+
+        // GET /api.php/nodes/{id}/status - Get node status
+        if ($method === 'GET' && count($segments) === 4 && $segments[3] === 'status') {
+            $id = urldecode($segments[2]);
+            $result = $api->getNodeStatus($id);
+
+            if (isset($result['success']) && $result['success']) {
+                send_response(200, $result['data']);
+            } else {
+                handle_api_result($result);
+            }
+        }
+
+        // GET /api.php/nodes/{id}/status/history - Get node status history
+        if ($method === 'GET' && count($segments) === 5 && $segments[3] === 'status' && $segments[4] === 'history') {
+            $id = urldecode($segments[2]);
+            send_response(200, $api->getNodeStatusHistory($id));
+        }
+
+        // POST /api.php/nodes/{id}/status - Set node status
+        if ($method === 'POST' && count($segments) === 4 && $segments[3] === 'status') {
+            $id = urldecode($segments[2]);
+
+            if (!isset($input['status'])) {
+                send_error(400, 'Missing required field: status');
+            }
+
+            $result = $api->setNodeStatus($id, $input['status']);
             handle_api_result($result);
         }
     }

@@ -352,4 +352,145 @@ class ApiHandlerTest extends TestCase {
         $this->assertEquals('Restore failed', $result['error']);
         $this->assertEquals(400, $result['code']);
     }
+
+    public function testGetAllNodeStatuses(): void {
+        $mockStatus1 = $this->createMock(\Internet\Graph\NodeStatus::class);
+        $mockStatus1->method('to_array')->willReturn([
+            'node_id' => 'node1',
+            'status' => 'online',
+            'created_at' => '2024-01-01 12:00:00'
+        ]);
+
+        $mockStatus2 = $this->createMock(\Internet\Graph\NodeStatus::class);
+        $mockStatus2->method('to_array')->willReturn([
+            'node_id' => 'node2',
+            'status' => 'offline',
+            'created_at' => '2024-01-01 12:01:00'
+        ]);
+
+        $this->mockGraph->expects($this->once())
+            ->method('status')
+            ->willReturn([$mockStatus1, $mockStatus2]);
+
+        $result = $this->apiHandler->getAllNodeStatuses();
+
+        $this->assertArrayHasKey('statuses', $result);
+        $this->assertCount(2, $result['statuses']);
+        $this->assertEquals('node1', $result['statuses'][0]['node_id']);
+        $this->assertEquals('online', $result['statuses'][0]['status']);
+        $this->assertEquals('node2', $result['statuses'][1]['node_id']);
+        $this->assertEquals('offline', $result['statuses'][1]['status']);
+    }
+
+    public function testGetAllNodeStatusesEmpty(): void {
+        $this->mockGraph->expects($this->once())
+            ->method('status')
+            ->willReturn([]);
+
+        $result = $this->apiHandler->getAllNodeStatuses();
+
+        $this->assertArrayHasKey('statuses', $result);
+        $this->assertEmpty($result['statuses']);
+    }
+
+    public function testGetNodeStatusSuccess(): void {
+        $mockStatus = $this->createMock(\Internet\Graph\NodeStatus::class);
+        $mockStatus->method('to_array')->willReturn([
+            'node_id' => 'node1',
+            'status' => 'online',
+            'created_at' => '2024-01-01 12:00:00'
+        ]);
+
+        $this->mockGraph->expects($this->once())
+            ->method('get_node_status')
+            ->with('node1')
+            ->willReturn($mockStatus);
+
+        $result = $this->apiHandler->getNodeStatus('node1');
+
+        $this->assertTrue($result['success']);
+        $this->assertArrayHasKey('data', $result);
+        $this->assertEquals('node1', $result['data']['node_id']);
+        $this->assertEquals('online', $result['data']['status']);
+    }
+
+    public function testGetNodeStatusNotFound(): void {
+        $this->mockGraph->expects($this->once())
+            ->method('get_node_status')
+            ->with('node1')
+            ->willReturn(null);
+
+        $result = $this->apiHandler->getNodeStatus('node1');
+
+        $this->assertFalse($result['success']);
+        $this->assertEquals('No status found for node', $result['error']);
+        $this->assertEquals(404, $result['code']);
+    }
+
+    public function testSetNodeStatusSuccess(): void {
+        $this->mockGraph->expects($this->once())
+            ->method('set_node_status')
+            ->with('node1', 'online')
+            ->willReturn(true);
+
+        $result = $this->apiHandler->setNodeStatus('node1', 'online');
+
+        $this->assertTrue($result['success']);
+        $this->assertEquals('Node status set successfully', $result['message']);
+        $this->assertEquals('node1', $result['data']['node_id']);
+        $this->assertEquals('online', $result['data']['status']);
+    }
+
+    public function testSetNodeStatusFailure(): void {
+        $this->mockGraph->expects($this->once())
+            ->method('set_node_status')
+            ->with('nonexistent', 'online')
+            ->willReturn(false);
+
+        $result = $this->apiHandler->setNodeStatus('nonexistent', 'online');
+
+        $this->assertFalse($result['success']);
+        $this->assertEquals('Failed to set node status (node may not exist)', $result['error']);
+        $this->assertEquals(404, $result['code']);
+    }
+
+    public function testGetNodeStatusHistory(): void {
+        $mockStatus1 = $this->createMock(\Internet\Graph\NodeStatus::class);
+        $mockStatus1->method('to_array')->willReturn([
+            'node_id' => 'node1',
+            'status' => 'online',
+            'created_at' => '2024-01-01 12:00:00'
+        ]);
+
+        $mockStatus2 = $this->createMock(\Internet\Graph\NodeStatus::class);
+        $mockStatus2->method('to_array')->willReturn([
+            'node_id' => 'node1',
+            'status' => 'offline',
+            'created_at' => '2024-01-01 12:01:00'
+        ]);
+
+        $this->mockGraph->expects($this->once())
+            ->method('get_node_status_history')
+            ->with('node1')
+            ->willReturn([$mockStatus1, $mockStatus2]);
+
+        $result = $this->apiHandler->getNodeStatusHistory('node1');
+
+        $this->assertArrayHasKey('history', $result);
+        $this->assertCount(2, $result['history']);
+        $this->assertEquals('online', $result['history'][0]['status']);
+        $this->assertEquals('offline', $result['history'][1]['status']);
+    }
+
+    public function testGetNodeStatusHistoryEmpty(): void {
+        $this->mockGraph->expects($this->once())
+            ->method('get_node_status_history')
+            ->with('node1')
+            ->willReturn([]);
+
+        $result = $this->apiHandler->getNodeStatusHistory('node1');
+
+        $this->assertArrayHasKey('history', $result);
+        $this->assertEmpty($result['history']);
+    }
 }
