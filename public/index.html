@@ -148,6 +148,14 @@
             'default': '#6c757d'
         };
 
+        // Status color mapping (takes precedence over category)
+        const statusColors = {
+            'healthy': '#28a745',     // green
+            'unhealthy': '#dc3545',   // red
+            'maintenance': '#ffc107', // yellow
+            'unknown': '#6c757d'      // gray
+        };
+
         // Query nodes by category
         function getNodesByCategory(category) {
             if (!cy) return [];
@@ -176,6 +184,23 @@
         // Get category color
         function getCategoryColor(category) {
             return categoryColors[category] || categoryColors['default'];
+        }
+
+        // Get status color
+        function getStatusColor(status) {
+            return statusColors[status] || statusColors['unknown'];
+        }
+
+        // Get node color (prioritize status over category)
+        function getNodeColor(node) {
+            const status = node.data('status');
+            const category = node.data('category');
+
+            // If status exists, use it; otherwise fall back to category
+            if (status && status !== 'unknown') {
+                return getStatusColor(status);
+            }
+            return getCategoryColor(category);
         }
 
         // Filter nodes by category
@@ -232,16 +257,42 @@
 
         async function loadData() {
             try {
-                const response = await fetch('database.json');
-                const data = await response.json();
+                // Fetch graph structure from API
+                const graphResponse = await fetch('api.php/graph');
+                const graphData = await graphResponse.json();
+
+                // Fetch node status data from API
+                const statusResponse = await fetch('api.php/status');
+                const statusData = await statusResponse.json();
+
+                // Create a status map for quick lookup
+                const statusMap = {};
+                if (statusData.statuses) {
+                    statusData.statuses.forEach(status => {
+                        statusMap[status.node_id] = status.status;
+                    });
+                }
+
+                // Merge status into node data
+                const nodes = (graphData.nodes || []).map(node => {
+                    const nodeId = node.data.id;
+                    const nodeStatus = statusMap[nodeId] || 'unknown';
+                    return {
+                        ...node,
+                        data: {
+                            ...node.data,
+                            status: nodeStatus
+                        }
+                    };
+                });
 
                 // Initialize Cytoscape
                 cy = cytoscape({
                     container: document.getElementById('cy'),
 
                     elements: {
-                        nodes: data.nodes || [],
-                        edges: data.edges || []
+                        nodes: nodes,
+                        edges: graphData.edges || []
                     },
 
                     style: [
@@ -249,13 +300,21 @@
                             selector: 'node',
                             style: {
                                 'background-color': function(ele) {
-                                    const category = ele.data('category');
-                                    return getCategoryColor(category);
+                                    return getNodeColor(ele);
                                 },
                                 'label': function(ele) {
                                     const id = ele.data('id');
+                                    const status = ele.data('status');
                                     const category = ele.data('category');
-                                    return category ? `${id}\n[${category}]` : id;
+
+                                    let label = id;
+                                    if (status) {
+                                        label += `\n[${status}]`;
+                                    }
+                                    if (category) {
+                                        label += `\n(${category})`;
+                                    }
+                                    return label;
                                 },
                                 'color': '#333',
                                 'text-valign': 'center',
@@ -335,8 +394,7 @@
 
                 cy.on('mouseout', 'node', function(evt) {
                     if (!evt.target.selected()) {
-                        const category = evt.target.data('category');
-                        evt.target.style('background-color', getCategoryColor(category));
+                        evt.target.style('background-color', getNodeColor(evt.target));
                     }
                 });
 
@@ -344,8 +402,8 @@
                 updateCategoryUI();
 
             } catch (error) {
-                console.error('Error loading database:', error);
-                alert('Failed to load database.json. Make sure the file exists and is valid JSON.');
+                console.error('Error loading data from API:', error);
+                alert('Failed to load data from API. Make sure the API is running and accessible.');
             }
         }
 
