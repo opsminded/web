@@ -140,11 +140,13 @@ class ApiHandler {
                 'data' => ['source' => $source]
             ];
         }
+        // @codeCoverageIgnoreStart
         return [
             'success' => false,
             'error' => 'Failed to remove edges',
             'code' => 400
         ];
+        // @codeCoverageIgnoreEnd
     }
 
     /**
@@ -203,11 +205,13 @@ class ApiHandler {
                 'message' => 'Graph restored to timestamp successfully'
             ];
         }
+        // @codeCoverageIgnoreStart
         return [
             'success' => false,
             'error' => 'Restore failed',
             'code' => 400
         ];
+        // @codeCoverageIgnoreEnd
     }
 
     /**

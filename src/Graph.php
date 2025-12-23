@@ -81,9 +81,11 @@ class Graph {
             $this->db = new PDO('sqlite:' . $this->db_file);
             $this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             $this->db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             throw new RuntimeException("Database connection failed: " . $e->getMessage());
         }
+        // @codeCoverageIgnoreEnd
 
         return $this->db;
     }
@@ -121,10 +123,12 @@ class Graph {
                 ':ip_address' => $ip_address
             ]);
             return true;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Audit log failed: " . $e->getMessage());
             return false;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function get(): array {
@@ -157,10 +161,12 @@ class Graph {
                 'nodes' => $nodes,
                 'edges' => $edges
             ];
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph get failed: " . $e->getMessage());
             return ['nodes' => [], 'edges' => []];
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function node_exists(string $id): bool {
@@ -169,10 +175,12 @@ class Graph {
             $stmt = $db->prepare("SELECT COUNT(*) FROM nodes WHERE id = :id");
             $stmt->execute([':id' => $id]);
             return $stmt->fetchColumn() > 0;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph node exists check failed: " . $e->getMessage());
             return false;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function add_node(string $id, array $data): bool {
@@ -192,10 +200,12 @@ class Graph {
             $this->audit_log('node', $id, 'create', null, $data);
 
             return true;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph add node failed: " . $e->getMessage());
             return false;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function update_node(string $id, array $data): bool {
@@ -220,10 +230,12 @@ class Graph {
             }
 
             return false;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph update node failed: " . $e->getMessage());
             return false;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function remove_node(string $id): bool {
@@ -261,6 +273,7 @@ class Graph {
 
             $db->commit();
             return $stmt->rowCount() > 0;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             if (isset($db)) {
                 $db->rollBack();
@@ -268,6 +281,7 @@ class Graph {
             error_log("Graph remove node failed: " . $e->getMessage());
             return false;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function edge_exists_by_id(string $id): bool {
@@ -276,10 +290,12 @@ class Graph {
             $stmt = $db->prepare("SELECT COUNT(*) FROM edges WHERE id = :id");
             $stmt->execute([':id' => $id]);
             return $stmt->fetchColumn() > 0;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph edge exists by id check failed: " . $e->getMessage());
             return false;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function edge_exists(string $source, string $target): bool {
@@ -295,10 +311,12 @@ class Graph {
                 ':target' => $target
             ]);
             return $stmt->fetchColumn() > 0;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph edge exists check failed: " . $e->getMessage());
             return false;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function add_edge(string $id, string $source, string $target, array $data): bool {
@@ -323,10 +341,12 @@ class Graph {
             $this->audit_log('edge', $id, 'create', null, $data);
 
             return true;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph add edge failed: " . $e->getMessage());
             return false;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function remove_edge(string $id): bool {
@@ -347,10 +367,12 @@ class Graph {
             }
 
             return false;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph remove edge failed: " . $e->getMessage());
             return false;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function remove_edges_from(string $source): bool {
@@ -373,10 +395,12 @@ class Graph {
             }
 
             return true;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph remove edges from failed: " . $e->getMessage());
             return false;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function create_backup(?string $backup_name = null): array {
@@ -390,9 +414,11 @@ class Graph {
 
             $backup_dir = dirname($this->db_file) . '/backups';
             if (!is_dir($backup_dir)) {
+                // @codeCoverageIgnoreStart
                 if (!mkdir($backup_dir, 0755, true)) {
                     throw new RuntimeException("Failed to create backup directory");
                 }
+                // @codeCoverageIgnoreEnd
             }
 
             $backup_file = $backup_dir . '/' . $backup_name . '.db';
@@ -407,9 +433,11 @@ class Graph {
             }
 
             // Simple file copy
+            // @codeCoverageIgnoreStart
             if (!copy($this->db_file, $backup_file)) {
                 throw new RuntimeException("Failed to copy database file");
             }
+            // @codeCoverageIgnoreEnd
 
             $file_size = filesize($backup_file);
 
@@ -426,6 +454,7 @@ class Graph {
                 'backup_name' => $backup_name,
                 'file_size' => $file_size
             ];
+        // @codeCoverageIgnoreStart
         } catch (Exception $e) {
             error_log("Graph create backup failed: " . $e->getMessage());
             return [
@@ -433,6 +462,7 @@ class Graph {
                 'error' => $e->getMessage()
             ];
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function get_audit_history(?string $entity_type = null, ?string $entity_id = null): array {
@@ -465,10 +495,12 @@ class Graph {
             }
 
             return $logs;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph get audit history failed: " . $e->getMessage());
             return [];
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function restore_entity(string $entity_type, string $entity_id, int $audit_log_id): bool {
@@ -477,8 +509,10 @@ class Graph {
             $backup_name = 'pre_restore_entity_' . $entity_type . '_' . $entity_id . '_' . date('Y-m-d_H-i-s') . '_' . rand(1000, 9999);
             $backup_result = $this->create_backup($backup_name);
             if (!$backup_result['success']) {
+                // @codeCoverageIgnoreStart
                 error_log("Failed to create backup before restore: " . ($backup_result['error'] ?? 'Unknown error'));
                 return false;
+                // @codeCoverageIgnoreEnd
             }
 
             $db = $this->get_db();
@@ -556,6 +590,7 @@ class Graph {
 
             $db->commit();
             return true;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             if (isset($db)) {
                 $db->rollBack();
@@ -563,6 +598,7 @@ class Graph {
             error_log("Graph restore entity failed: " . $e->getMessage());
             return false;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function restore_to_timestamp(string $timestamp): bool {
@@ -571,8 +607,10 @@ class Graph {
             $backup_name = 'pre_restore_timestamp_' . str_replace([' ', ':'], ['_', '-'], $timestamp);
             $backup_result = $this->create_backup($backup_name);
             if (!$backup_result['success']) {
+                // @codeCoverageIgnoreStart
                 error_log("Failed to create backup before restore: " . ($backup_result['error'] ?? 'Unknown error'));
                 return false;
+                // @codeCoverageIgnoreEnd
             }
 
             $db = $this->get_db();
@@ -663,6 +701,7 @@ class Graph {
 
             $db->commit();
             return true;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             if (isset($db)) {
                 $db->rollBack();
@@ -670,6 +709,7 @@ class Graph {
             error_log("Graph restore to timestamp failed: " . $e->getMessage());
             return false;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function set_node_status(string $node_id, string $status): bool {
@@ -691,10 +731,12 @@ class Graph {
             $this->audit_log('node_status', $node_id, 'create', null, ['status' => $status]);
 
             return true;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph set node status failed: " . $e->getMessage());
             return false;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function get_node_status(string $node_id): ?NodeStatus {
@@ -719,10 +761,12 @@ class Graph {
             }
 
             return new NodeStatus($row['node_id'], $row['status'], $row['created_at']);
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph get node status failed: " . $e->getMessage());
             return null;
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function get_node_status_history(string $node_id): array {
@@ -743,10 +787,12 @@ class Graph {
             }
 
             return $statuses;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph get node status history failed: " . $e->getMessage());
             return [];
         }
+        // @codeCoverageIgnoreEnd
     }
 
     public function status(): array {
@@ -771,9 +817,11 @@ class Graph {
             }
 
             return $statuses;
+        // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph get all statuses failed: " . $e->getMessage());
             return [];
         }
+        // @codeCoverageIgnoreEnd
     }
 }

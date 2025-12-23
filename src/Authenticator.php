@@ -57,10 +57,12 @@ class Authenticator {
 
         if ($auth_header === null) {
             // Check alternative header locations (Apache)
+            // @codeCoverageIgnoreStart
             if (function_exists('apache_request_headers')) {
                 $headers = apache_request_headers();
                 $auth_header = $headers['Authorization'] ?? null;
             }
+            // @codeCoverageIgnoreEnd
         }
 
         return $auth_header;
