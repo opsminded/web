@@ -302,6 +302,10 @@ class Graph {
     }
 
     public function add_edge(string $id, string $source, string $target, array $data): bool {
+        if ($this->edge_exists_by_id($id)) {
+            return false;
+        }
+        
         try {
             $data['id'] = $id;
             $data['source'] = $source;
