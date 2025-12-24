@@ -12,6 +12,12 @@ class ApiHandler {
     // Allowed node statuses
     private const ALLOWED_STATUSES = ['unknown', 'healthy', 'unhealthy', 'maintenance'];
 
+    // Allowed categories
+    private const ALLOWED_CATEGORIES = ['business', 'application', 'infrastructure'];
+
+    // Allowed types
+    private const ALLOWED_TYPES = ['server', 'database', 'application', 'network'];
+
     public function __construct(Graph $graph) {
         $this->graph = $graph;
     }
@@ -35,6 +41,42 @@ class ApiHandler {
      * Create a new node
      */
     public function createNode(string $id, array $data): array {
+        // Validate required category field
+        if (!isset($data['category']) || empty($data['category'])) {
+            return [
+                'success' => false,
+                'error' => 'Category is required. Allowed values: ' . implode(', ', self::ALLOWED_CATEGORIES),
+                'code' => 400
+            ];
+        }
+
+        // Validate category value
+        if (!in_array($data['category'], self::ALLOWED_CATEGORIES, true)) {
+            return [
+                'success' => false,
+                'error' => 'Invalid category. Allowed values: ' . implode(', ', self::ALLOWED_CATEGORIES),
+                'code' => 400
+            ];
+        }
+
+        // Validate required type field
+        if (!isset($data['type']) || empty($data['type'])) {
+            return [
+                'success' => false,
+                'error' => 'Type is required. Allowed values: ' . implode(', ', self::ALLOWED_TYPES),
+                'code' => 400
+            ];
+        }
+
+        // Validate type value
+        if (!in_array($data['type'], self::ALLOWED_TYPES, true)) {
+            return [
+                'success' => false,
+                'error' => 'Invalid type. Allowed values: ' . implode(', ', self::ALLOWED_TYPES),
+                'code' => 400
+            ];
+        }
+
         if ($this->graph->add_node($id, $data)) {
             return [
                 'success' => true,
@@ -53,6 +95,42 @@ class ApiHandler {
      * Update an existing node
      */
     public function updateNode(string $id, array $data): array {
+        // Validate category if provided
+        if (isset($data['category'])) {
+            if (empty($data['category'])) {
+                return [
+                    'success' => false,
+                    'error' => 'Category cannot be empty. Allowed values: ' . implode(', ', self::ALLOWED_CATEGORIES),
+                    'code' => 400
+                ];
+            }
+            if (!in_array($data['category'], self::ALLOWED_CATEGORIES, true)) {
+                return [
+                    'success' => false,
+                    'error' => 'Invalid category. Allowed values: ' . implode(', ', self::ALLOWED_CATEGORIES),
+                    'code' => 400
+                ];
+            }
+        }
+
+        // Validate type if provided
+        if (isset($data['type'])) {
+            if (empty($data['type'])) {
+                return [
+                    'success' => false,
+                    'error' => 'Type cannot be empty. Allowed values: ' . implode(', ', self::ALLOWED_TYPES),
+                    'code' => 400
+                ];
+            }
+            if (!in_array($data['type'], self::ALLOWED_TYPES, true)) {
+                return [
+                    'success' => false,
+                    'error' => 'Invalid type. Allowed values: ' . implode(', ', self::ALLOWED_TYPES),
+                    'code' => 400
+                ];
+            }
+        }
+
         if ($this->graph->update_node($id, $data)) {
             return [
                 'success' => true,
@@ -219,6 +297,20 @@ class ApiHandler {
      */
     public function getAllowedStatuses(): array {
         return ['allowed_statuses' => self::ALLOWED_STATUSES];
+    }
+
+    /**
+     * Get allowed category values
+     */
+    public function getAllowedCategories(): array {
+        return ['allowed_categories' => self::ALLOWED_CATEGORIES];
+    }
+
+    /**
+     * Get allowed type values
+     */
+    public function getAllowedTypes(): array {
+        return ['allowed_types' => self::ALLOWED_TYPES];
     }
 
     /**
