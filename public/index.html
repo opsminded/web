@@ -106,11 +106,165 @@
             font-size: 12px;
             color: #666;
         }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 10% auto;
+            padding: 20px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 20px;
+            color: #333;
+        }
+
+        .close {
+            font-size: 28px;
+            font-weight: bold;
+            color: #999;
+            cursor: pointer;
+            line-height: 20px;
+        }
+
+        .close:hover {
+            color: #333;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+            font-size: 14px;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        .form-group small {
+            display: block;
+            margin-top: 3px;
+            color: #777;
+            font-size: 12px;
+        }
+
+        .btn-primary {
+            background-color: #28a745;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .btn-primary:hover {
+            background-color: #218838;
+        }
+
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-left: 10px;
+        }
+
+        .btn-secondary:hover {
+            background-color: #5a6268;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 3000;
+            font-size: 14px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .notification.success {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .notification.error {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .divider {
+            margin: 15px 0;
+            border-top: 1px solid #eee;
+        }
     </style>
 </head>
 <body>
     <div id="controls">
         <h3>Controls</h3>
+        <button onclick="openAddNodeModal()">Add Node</button>
+        <button onclick="openAddEdgeModal()">Add Edge</button>
+
+        <div class="divider"></div>
+
         <button onclick="cy.fit()">Fit to Screen</button>
         <button onclick="cy.center()">Center</button>
         <button onclick="cy.reset()">Reset View</button>
@@ -134,8 +288,116 @@
         <strong>Edges:</strong> <span id="edgeCount">0</span>
     </div>
 
+    <!-- Add Node Modal -->
+    <div id="addNodeModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add New Node</h2>
+                <span class="close" onclick="closeAddNodeModal()">&times;</span>
+            </div>
+            <form id="addNodeForm" onsubmit="return handleAddNode(event)">
+                <div class="form-group">
+                    <label for="nodeId">Node ID *</label>
+                    <input type="text" id="nodeId" name="nodeId" required>
+                    <small>Unique identifier for the node (e.g., web-server-01)</small>
+                </div>
+                <div class="form-group">
+                    <label for="nodeCategory">Category</label>
+                    <select id="nodeCategory" name="nodeCategory">
+                        <option value="">Select category</option>
+                        <option value="service">Service</option>
+                        <option value="database">Database</option>
+                        <option value="api">API</option>
+                        <option value="frontend">Frontend</option>
+                        <option value="backend">Backend</option>
+                        <option value="infrastructure">Infrastructure</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="nodeLabel">Label</label>
+                    <input type="text" id="nodeLabel" name="nodeLabel">
+                    <small>Display label (defaults to ID if empty)</small>
+                </div>
+                <div class="form-group">
+                    <label for="nodeUrl">URL</label>
+                    <input type="url" id="nodeUrl" name="nodeUrl">
+                    <small>Optional URL for this resource</small>
+                </div>
+                <div class="form-group">
+                    <label for="nodeMetadata">Additional Metadata (JSON)</label>
+                    <textarea id="nodeMetadata" name="nodeMetadata" placeholder='{"key": "value"}'></textarea>
+                    <small>Optional: Additional properties as JSON</small>
+                </div>
+                <div>
+                    <button type="submit" class="btn-primary">Create Node</button>
+                    <button type="button" class="btn-secondary" onclick="closeAddNodeModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Edge Modal -->
+    <div id="addEdgeModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add New Edge</h2>
+                <span class="close" onclick="closeAddEdgeModal()">&times;</span>
+            </div>
+            <form id="addEdgeForm" onsubmit="return handleAddEdge(event)">
+                <div class="form-group">
+                    <label for="edgeId">Edge ID *</label>
+                    <input type="text" id="edgeId" name="edgeId" required>
+                    <small>Unique identifier for the edge</small>
+                </div>
+                <div class="form-group">
+                    <label for="edgeSource">Source Node *</label>
+                    <input type="text" id="edgeSource" name="edgeSource" required list="nodeList">
+                    <datalist id="nodeList"></datalist>
+                    <small>Source node ID</small>
+                </div>
+                <div class="form-group">
+                    <label for="edgeTarget">Target Node *</label>
+                    <input type="text" id="edgeTarget" name="edgeTarget" required list="nodeList">
+                    <small>Target node ID</small>
+                </div>
+                <div class="form-group">
+                    <label for="edgeLabel">Label</label>
+                    <input type="text" id="edgeLabel" name="edgeLabel">
+                    <small>Relationship label (e.g., "depends on", "connects to")</small>
+                </div>
+                <div class="form-group">
+                    <label for="edgeMetadata">Additional Metadata (JSON)</label>
+                    <textarea id="edgeMetadata" name="edgeMetadata" placeholder='{"key": "value"}'></textarea>
+                    <small>Optional: Additional properties as JSON</small>
+                </div>
+                <div>
+                    <button type="submit" class="btn-primary">Create Edge</button>
+                    <button type="button" class="btn-secondary" onclick="closeAddEdgeModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         let cy;
+
+        // Authentication credentials (can be set via browser prompt)
+        // For production, implement proper authentication management
+        let authCredentials = null;
+
+        // Get auth credentials (prompt user if not set)
+        function getAuthHeader() {
+            if (!authCredentials) {
+                const username = prompt('Enter username (default: admin):', 'admin');
+                if (!username) return null;
+
+                const password = prompt('Enter password (default: password):', 'password');
+                if (!password) return null;
+
+                authCredentials = btoa(username + ':' + password);
+            }
+            return 'Basic ' + authCredentials;
+        }
 
         // Category color mapping
         const categoryColors = {
@@ -405,6 +667,204 @@
                 console.error('Error loading data from API:', error);
                 alert('Failed to load data from API. Make sure the API is running and accessible.');
             }
+        }
+
+        // Modal functions
+        function openAddNodeModal() {
+            document.getElementById('addNodeModal').style.display = 'block';
+            document.getElementById('addNodeForm').reset();
+        }
+
+        function closeAddNodeModal() {
+            document.getElementById('addNodeModal').style.display = 'none';
+        }
+
+        function openAddEdgeModal() {
+            // Populate node list for autocomplete
+            updateNodeList();
+            document.getElementById('addEdgeModal').style.display = 'block';
+            document.getElementById('addEdgeForm').reset();
+        }
+
+        function closeAddEdgeModal() {
+            document.getElementById('addEdgeModal').style.display = 'none';
+        }
+
+        // Update node list for edge creation
+        function updateNodeList() {
+            const nodeList = document.getElementById('nodeList');
+            nodeList.innerHTML = '';
+
+            if (cy) {
+                cy.nodes().forEach(node => {
+                    const option = document.createElement('option');
+                    option.value = node.data('id');
+                    nodeList.appendChild(option);
+                });
+            }
+        }
+
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            const nodeModal = document.getElementById('addNodeModal');
+            const edgeModal = document.getElementById('addEdgeModal');
+
+            if (event.target === nodeModal) {
+                closeAddNodeModal();
+            }
+            if (event.target === edgeModal) {
+                closeAddEdgeModal();
+            }
+        }
+
+        // Show notification
+        function showNotification(message, type = 'success') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+
+        // Handle node creation
+        async function handleAddNode(event) {
+            event.preventDefault();
+
+            const nodeId = document.getElementById('nodeId').value.trim();
+            const category = document.getElementById('nodeCategory').value;
+            const label = document.getElementById('nodeLabel').value.trim();
+            const url = document.getElementById('nodeUrl').value.trim();
+            const metadataStr = document.getElementById('nodeMetadata').value.trim();
+
+            // Build node data
+            const nodeData = {
+                id: nodeId,
+                category: category || undefined,
+                label: label || nodeId
+            };
+
+            if (url) {
+                nodeData.url = url;
+            }
+
+            // Parse additional metadata
+            if (metadataStr) {
+                try {
+                    const metadata = JSON.parse(metadataStr);
+                    Object.assign(nodeData, metadata);
+                } catch (e) {
+                    showNotification('Invalid JSON in metadata field', 'error');
+                    return false;
+                }
+            }
+
+            try {
+                const authHeader = getAuthHeader();
+                if (!authHeader) {
+                    showNotification('Authentication cancelled', 'error');
+                    return false;
+                }
+
+                const response = await fetch('api.php/nodes', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': authHeader
+                    },
+                    body: JSON.stringify({
+                        id: nodeId,
+                        data: nodeData
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    showNotification(`Node "${nodeId}" created successfully!`, 'success');
+                    closeAddNodeModal();
+                    loadData(); // Reload graph
+                } else {
+                    showNotification(result.message || result.error || 'Failed to create node', 'error');
+                }
+            } catch (error) {
+                console.error('Error creating node:', error);
+                showNotification('Network error: ' + error.message, 'error');
+            }
+
+            return false;
+        }
+
+        // Handle edge creation
+        async function handleAddEdge(event) {
+            event.preventDefault();
+
+            const edgeId = document.getElementById('edgeId').value.trim();
+            const source = document.getElementById('edgeSource').value.trim();
+            const target = document.getElementById('edgeTarget').value.trim();
+            const label = document.getElementById('edgeLabel').value.trim();
+            const metadataStr = document.getElementById('edgeMetadata').value.trim();
+
+            // Build edge data
+            const edgeData = {
+                id: edgeId,
+                source: source,
+                target: target
+            };
+
+            if (label) {
+                edgeData.label = label;
+            }
+
+            // Parse additional metadata
+            if (metadataStr) {
+                try {
+                    const metadata = JSON.parse(metadataStr);
+                    Object.assign(edgeData, metadata);
+                } catch (e) {
+                    showNotification('Invalid JSON in metadata field', 'error');
+                    return false;
+                }
+            }
+
+            try {
+                const authHeader = getAuthHeader();
+                if (!authHeader) {
+                    showNotification('Authentication cancelled', 'error');
+                    return false;
+                }
+
+                const response = await fetch('api.php/edges', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': authHeader
+                    },
+                    body: JSON.stringify({
+                        id: edgeId,
+                        source: source,
+                        target: target,
+                        data: edgeData
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    showNotification(`Edge "${edgeId}" created successfully!`, 'success');
+                    closeAddEdgeModal();
+                    loadData(); // Reload graph
+                } else {
+                    showNotification(result.message || result.error || 'Failed to create edge', 'error');
+                }
+            } catch (error) {
+                console.error('Error creating edge:', error);
+                showNotification('Network error: ' + error.message, 'error');
+            }
+
+            return false;
         }
 
         // Load data on page load
