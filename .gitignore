@@ -3,3 +3,7 @@ composer.phar
 coverrep/
 .phpunit.cache/
 ./coverrep/
+.env
+graph.db
+backups/
+vendor/

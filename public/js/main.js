@@ -1,21 +1,122 @@
 let cy;
 
-        // Authentication credentials (can be set via browser prompt)
-        // For production, implement proper authentication management
-        let authCredentials = null;
+        // Application state
+        const appState = {
+            authenticated: false,
+            user: null,
+            csrfToken: null
+        };
 
-        // Get auth credentials (prompt user if not set)
-        function getAuthHeader() {
-            if (!authCredentials) {
-                const username = prompt('Enter username (default: admin):', 'admin');
-                if (!username) return null;
+        // Check authentication status on load
+        async function checkAuthStatus() {
+            try {
+                const response = await fetch('api.php/auth/status');
+                const data = await response.json();
 
-                const password = prompt('Enter password (default: password):', 'password');
-                if (!password) return null;
+                appState.authenticated = data.authenticated;
+                appState.user = data.user;
+                appState.csrfToken = data.csrf_token;
 
-                authCredentials = btoa(username + ':' + password);
+                updateAuthUI();
+                return data.authenticated;
+            } catch (error) {
+                console.error('Error checking auth status:', error);
+                return false;
             }
-            return 'Basic ' + authCredentials;
+        }
+
+        // Update authentication UI
+        function updateAuthUI() {
+            const userInfo = document.getElementById('userInfo');
+            const logoutBtn = document.getElementById('logoutBtn');
+
+            if (appState.authenticated) {
+                userInfo.textContent = `User: ${appState.user}`;
+                logoutBtn.style.display = 'inline-block';
+            } else {
+                userInfo.textContent = 'Not logged in';
+                logoutBtn.style.display = 'none';
+            }
+        }
+
+        // Show login modal
+        function showLoginModal() {
+            document.getElementById('loginModal').style.display = 'block';
+            document.getElementById('loginUsername').focus();
+        }
+
+        // Hide login modal
+        function hideLoginModal() {
+            document.getElementById('loginModal').style.display = 'none';
+            document.getElementById('loginForm').reset();
+        }
+
+        // Handle login
+        async function handleLogin(event) {
+            event.preventDefault();
+
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+
+            try {
+                const response = await fetch('api.php/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    appState.authenticated = true;
+                    appState.user = result.data.user;
+                    appState.csrfToken = result.data.csrf_token;
+
+                    hideLoginModal();
+                    updateAuthUI();
+                    showNotification('Login successful!', 'success');
+                } else {
+                    showNotification(result.error || 'Login failed', 'error');
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                showNotification('Network error: ' + error.message, 'error');
+            }
+
+            return false;
+        }
+
+        // Handle logout
+        async function handleLogout() {
+            try {
+                await fetch('api.php/auth/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': appState.csrfToken
+                    }
+                });
+
+                appState.authenticated = false;
+                appState.user = null;
+                appState.csrfToken = null;
+
+                updateAuthUI();
+                showNotification('Logged out successfully', 'success');
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+        }
+
+        // Ensure user is authenticated before write operations
+        async function ensureAuthenticated() {
+            if (!appState.authenticated) {
+                showLoginModal();
+                return false;
+            }
+            return true;
         }
 
         // Category shape mapping
@@ -372,6 +473,10 @@ let cy;
         async function handleAddNode(event) {
             event.preventDefault();
 
+            if (!await ensureAuthenticated()) {
+                return false;
+            }
+
             const nodeId = document.getElementById('nodeId').value.trim();
             const category = document.getElementById('nodeCategory').value;
             const type = document.getElementById('nodeType').value;
@@ -403,17 +508,11 @@ let cy;
             }
 
             try {
-                const authHeader = getAuthHeader();
-                if (!authHeader) {
-                    showNotification('Authentication cancelled', 'error');
-                    return false;
-                }
-
                 const response = await fetch('api.php/nodes', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': authHeader
+                        'X-CSRF-Token': appState.csrfToken
                     },
                     body: JSON.stringify({
                         id: nodeId,
@@ -441,6 +540,10 @@ let cy;
         // Handle edge creation
         async function handleAddEdge(event) {
             event.preventDefault();
+
+            if (!await ensureAuthenticated()) {
+                return false;
+            }
 
             const edgeId = document.getElementById('edgeId').value.trim();
             const source = document.getElementById('edgeSource').value.trim();
@@ -471,17 +574,11 @@ let cy;
             }
 
             try {
-                const authHeader = getAuthHeader();
-                if (!authHeader) {
-                    showNotification('Authentication cancelled', 'error');
-                    return false;
-                }
-
                 const response = await fetch('api.php/edges', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': authHeader
+                        'X-CSRF-Token': appState.csrfToken
                     },
                     body: JSON.stringify({
                         id: edgeId,
@@ -508,5 +605,11 @@ let cy;
             return false;
         }
 
+        // Initialize on page load
+        async function init() {
+            await checkAuthStatus();
+            await loadData();
+        }
+
         // Load data on page load
-        loadData();
+        init();

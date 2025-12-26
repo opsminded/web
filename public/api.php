@@ -23,28 +23,24 @@ use Internet\Graph\Graph;
 use Internet\Graph\AuditContext;
 use Internet\Graph\ApiHandler;
 use Internet\Graph\Authenticator;
+use Internet\Graph\Config;
+use Internet\Graph\SessionManager;
 
-// Configuration: Valid Bearer Tokens for automation
-// Format: 'token' => 'user_identifier'
-$valid_bearer_tokens = [
-    'automation_token_123456789' => 'automation_bot',
-    'ci_cd_token_987654321' => 'ci_cd_system',
-    // Add more automation tokens here
-];
+// Load configuration from .env file
+Config::load();
 
-// Configuration: Valid Basic Auth credentials
-// Format: 'username' => 'password_hash'
-// Generate hash with: password_hash('your_password', PASSWORD_DEFAULT)
-$valid_users = [
-    'admin' => '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password: 'password'
-    // Add more users here
-];
+// Start session
+SessionManager::start();
+
+// Get authentication configuration from environment
+$valid_bearer_tokens = Config::getAuthBearerTokens();
+$valid_users = Config::getAuthUsers();
 
 // Set headers for JSON API
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
+header('Access-Control-Allow-Origin: ' . Config::get('CORS_ALLOWED_ORIGINS'));
+header('Access-Control-Allow-Methods: ' . Config::get('CORS_ALLOWED_METHODS'));
+header('Access-Control-Allow-Headers: ' . Config::get('CORS_ALLOWED_HEADERS'));
 
 // Handle preflight requests
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -55,22 +51,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 // Initialize authenticator
 $authenticator = new Authenticator($valid_bearer_tokens, $valid_users);
 
-// Authenticate the request
-$user_id = $authenticator->authenticate();
-
 // Get request method
 $method = $_SERVER['REQUEST_METHOD'];
 
-// Allow anonymous access for read-only operations (GET)
+// Get request path for early routing check
+$request_uri = $_SERVER['REQUEST_URI'];
+$path = parse_url($request_uri, PHP_URL_PATH);
+$base_path = dirname($_SERVER['SCRIPT_NAME']);
+if ($base_path !== '/') {
+    $path = substr($path, strlen($base_path));
+}
+$segments = array_values(array_filter(explode('/', $path)));
+
+// Check if this is a login request (exempt from auth requirement)
+$is_login_request = ($method === 'POST' && count($segments) >= 3 &&
+                     $segments[1] === 'auth' && $segments[2] === 'login');
+
+// Determine user ID from session or authenticate
+$user_id = null;
+
+// Check session first
+if (SessionManager::isAuthenticated()) {
+    $user_id = SessionManager::getUser();
+} else {
+    // Fall back to Basic Auth or Bearer Token
+    $user_id = $authenticator->authenticate();
+}
+
+// Allow anonymous access for read-only operations (GET) and login endpoint
 // Require authentication for state-changing operations (POST, PUT, DELETE, PATCH)
 $is_read_only = ($method === 'GET');
-$requires_auth = !$is_read_only;
+$requires_auth = !$is_read_only && !$is_login_request;
 
 if ($requires_auth && $user_id === null) {
     http_response_code(401);
     echo json_encode([
         'error' => 'Authentication required',
-        'message' => 'Authentication is required for ' . $method . ' requests. Please provide valid Basic Auth credentials or Bearer token'
+        'message' => 'Authentication is required for ' . $method . ' requests. Please login or provide valid Basic Auth credentials or Bearer token'
     ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
 }
@@ -92,23 +109,10 @@ if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
 
 AuditContext::set($user_id, $ip_address);
 
-// Database file path
-$db_file = __DIR__ . '/../graph.db';
+// Database file path from configuration
+$db_file = __DIR__ . '/' . Config::get('DB_PATH');
 $graph = new Graph($db_file);
 $api = new ApiHandler($graph);
-
-// Get request path
-$request_uri = $_SERVER['REQUEST_URI'];
-$path = parse_url($request_uri, PHP_URL_PATH);
-
-// Remove base path if needed (adjust based on your setup)
-$base_path = dirname($_SERVER['SCRIPT_NAME']);
-if ($base_path !== '/') {
-    $path = substr($path, strlen($base_path));
-}
-
-// Parse path segments
-$segments = array_values(array_filter(explode('/', $path)));
 
 // Get JSON input for POST/PUT requests
 $input = null;
@@ -117,6 +121,34 @@ if (in_array($method, ['POST', 'PUT', 'PATCH'])) {
     $input = json_decode($json, true);
     if ($input === null && $json !== '') {
         send_error(400, 'Invalid JSON input');
+    }
+}
+
+// CSRF Protection for state-changing operations from authenticated sessions
+// Skip CSRF for Bearer token auth (API automation) and login endpoint
+$is_session_auth = SessionManager::isAuthenticated();
+$is_state_changing = in_array($method, ['POST', 'PUT', 'DELETE', 'PATCH']);
+$requires_csrf = $is_session_auth && $is_state_changing && $user_id !== null;
+
+if ($requires_csrf) {
+    // Get CSRF token from header or input
+    $csrf_token = null;
+    if (isset($_SERVER['HTTP_X_CSRF_TOKEN'])) {
+        $csrf_token = $_SERVER['HTTP_X_CSRF_TOKEN'];
+    } elseif (isset($input['csrf_token'])) {
+        $csrf_token = $input['csrf_token'];
+    }
+
+    // Validate CSRF token for all routes except login
+    $is_login_route = (count($segments) >= 3 && $segments[1] === 'auth' && $segments[2] === 'login');
+
+    if (!$is_login_route && !SessionManager::validateCsrfToken($csrf_token ?? '')) {
+        http_response_code(403);
+        echo json_encode([
+            'error' => 'CSRF token validation failed',
+            'message' => 'Please include a valid CSRF token in X-CSRF-Token header or request body'
+        ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        exit;
     }
 }
 
@@ -160,6 +192,54 @@ function handle_api_result(array $result): void {
 
 // Route handling
 try {
+    // Authentication endpoints
+    if (count($segments) >= 2 && $segments[1] === 'auth') {
+
+        // POST /api.php/auth/login - Login with username/password
+        if ($method === 'POST' && count($segments) === 3 && $segments[2] === 'login') {
+            if (!isset($input['username']) || !isset($input['password'])) {
+                send_error(400, 'Missing username or password');
+            }
+
+            $username = $input['username'];
+            $password = $input['password'];
+
+            // Validate credentials
+            if (isset($valid_users[$username]) && password_verify($password, $valid_users[$username])) {
+                SessionManager::setUser($username);
+                send_success([
+                    'user' => $username,
+                    'csrf_token' => SessionManager::getCsrfToken()
+                ], 'Login successful');
+            } else {
+                send_error(401, 'Invalid credentials');
+            }
+        }
+
+        // POST /api.php/auth/logout - Logout
+        if ($method === 'POST' && count($segments) === 3 && $segments[2] === 'logout') {
+            SessionManager::destroy();
+            send_success(null, 'Logout successful');
+        }
+
+        // GET /api.php/auth/status - Check authentication status
+        if ($method === 'GET' && count($segments) === 3 && $segments[2] === 'status') {
+            send_response(200, [
+                'authenticated' => SessionManager::isAuthenticated(),
+                'user' => SessionManager::getUser(),
+                'csrf_token' => SessionManager::isAuthenticated() ? SessionManager::getCsrfToken() : null
+            ]);
+        }
+
+        // GET /api.php/auth/csrf - Get CSRF token
+        if ($method === 'GET' && count($segments) === 3 && $segments[2] === 'csrf') {
+            if (!SessionManager::isAuthenticated()) {
+                send_error(401, 'Not authenticated');
+            }
+            send_response(200, ['csrf_token' => SessionManager::getCsrfToken()]);
+        }
+    }
+
     // GET /api.php/graph - Get entire graph
     if ($method === 'GET' && count($segments) === 1 && $segments[0] === 'api.php') {
         send_response(200, $api->getGraph());
