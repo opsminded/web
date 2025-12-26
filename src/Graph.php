@@ -159,8 +159,9 @@ class Graph {
 
             return [
                 'nodes' => $nodes,
-                'edges' => $edges
+                'edges' => $edges,
             ];
+
         // @codeCoverageIgnoreStart
         } catch (PDOException $e) {
             error_log("Graph get failed: " . $e->getMessage());
