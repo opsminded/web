@@ -1,0 +1,49 @@
+# Deployment Configuration
+# Copy this file to deploy.config and customize for your environment
+
+# Production server settings
+DEPLOY_HOST="your-server.com"
+DEPLOY_USER="your-username"
+DEPLOY_PATH="/var/www/gdmon"
+
+# SSH settings (optional)
+DEPLOY_PORT="22"
+DEPLOY_KEY=""  # Leave empty to use default SSH key, or specify path like ~/.ssh/id_rsa
+
+# Deployment method: rsync or tarball
+# rsync: Faster, only transfers changed files
+# tarball: Downloads from GitHub, good for clean deployments
+DEPLOY_METHOD="rsync"
+
+# GitHub repository (only used if DEPLOY_METHOD=tarball)
+GITHUB_REPO="your-username/your-repo"
+GITHUB_BRANCH="main"
+
+# Composer settings
+RUN_COMPOSER="true"  # Install dependencies before deployment
+
+# Backup settings
+CREATE_BACKUP="true"  # Create backup of existing deployment before overwriting
+
+# Files/directories to exclude from deployment
+EXCLUDE_PATTERNS=(
+    ".git"
+    ".gitignore"
+    "tests"
+    "*.md"
+    ".env"
+    ".env.*"
+    "deploy.sh"
+    "deploy.ps1"
+    "package.sh"
+    "deploy.config"
+    "deploy.config.example"
+    "phpunit.phar"
+    "composer.phar"
+    "graph_test_*.db"
+    "*.log"
+    "coverrep"
+    ".phpunit.cache"
+    "backups"
+    "*_backups"
+)

@@ -46,6 +46,156 @@ php -r "echo password_hash('your_password', PASSWORD_DEFAULT);"
 php bin/generate_auth.php
 ```
 
+### Deployment
+
+The repository includes deployment scripts for pushing code to production servers without git access. Supports both Linux and Windows deployment environments.
+
+#### Deployment Workflow
+
+**Scenario**: Development on Linux → Deploy from Windows → Production Linux (no internet)
+
+**Method 1: Direct from GitHub (Recommended)**
+
+On Windows computer (with internet access):
+
+```powershell
+# 1. Download code from GitHub
+git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git
+# or download ZIP and extract
+
+# 2. Install dependencies (if PHP/Composer available on Windows)
+composer install --no-dev --optimize-autoloader
+
+# 3. Configure deployment
+Copy-Item deploy.config.example deploy.config
+notepad deploy.config  # Edit with production server details
+
+# 4. Deploy to production
+.\deploy.ps1
+```
+
+**Method 2: Package on Dev Machine**
+
+On development machine (Linux):
+
+```bash
+# 1. Create deployment package (includes all dependencies)
+./package.sh
+
+# 2. Transfer gdmon-deploy-XXXXXX.tar.gz to Windows computer
+#    - USB drive, network share, email, cloud storage
+```
+
+On Windows computer:
+
+```powershell
+# 3. Extract package
+tar -xzf gdmon-deploy-XXXXXX.tar.gz
+cd gdmon-deploy-XXXXXX
+
+# 4. Configure deployment
+Copy-Item deploy.config.example deploy.config
+notepad deploy.config
+
+# 5. Deploy to production
+.\deploy.ps1
+```
+
+**Method 3: Direct from Linux (if SSH access)**
+
+If you have direct SSH access from your Linux dev machine:
+
+```bash
+# 1. Copy and configure deployment settings
+cp deploy.config.example deploy.config
+nano deploy.config  # Edit with your server details
+
+# 2. Run deployment
+./deploy.sh
+```
+
+#### Configuration Options
+
+**deploy.config** (works with both Linux and Windows scripts):
+- `DEPLOY_HOST`: Production server hostname/IP
+- `DEPLOY_USER`: SSH username
+- `DEPLOY_PATH`: Deployment directory on server (e.g., `/var/www/gdmon`)
+- `DEPLOY_PORT`: SSH port (default: 22)
+- `DEPLOY_KEY`: Path to SSH private key (optional)
+- `CREATE_BACKUP`: Automatically backup existing deployment (true/false)
+
+Linux-only options (deploy.sh):
+- `DEPLOY_METHOD`: Choose `rsync` (faster, incremental) or `tarball` (GitHub download)
+- `RUN_COMPOSER`: Install dependencies before deployment
+- `GITHUB_REPO`: Your GitHub repository (for tarball method)
+- `GITHUB_BRANCH`: Branch to deploy (default: main)
+
+#### Requirements
+
+**Windows deployment**:
+- Windows 10+ with OpenSSH client (Settings > Apps > Optional Features)
+- SSH access configured to production server
+- tar command available (built-in on Windows 10 1803+)
+
+**Linux deployment**:
+- SSH access to production server
+- rsync installed
+- Composer (for dependency installation)
+
+**Production server**:
+- PHP 7.4 or higher
+- SQLite3 extension
+- Writable `data/` directory
+- No internet access required
+
+#### Post-Deployment Checklist
+
+After deployment completes, SSH into production server and:
+
+1. **Create `.env` file** (copy from `.env.example`)
+   ```bash
+   cd /var/www/gdmon
+   cp .env.example .env
+   nano .env  # Configure database path and settings
+   ```
+
+2. **Initialize database** (auto-creates schema on first access)
+   ```bash
+   php public/api.php  # Makes initial request to create DB
+   ```
+
+3. **Set up authentication**
+   ```bash
+   php bin/generate_auth.php  # Create admin user
+   ```
+
+4. **Configure web server** to serve `public/` directory
+   - Apache: Point DocumentRoot to `/var/www/gdmon/public`
+   - Nginx: Set root to `/var/www/gdmon/public`
+
+5. **Set proper permissions**
+   ```bash
+   chmod 775 data
+   chmod 664 data/*.db
+   ```
+
+#### Troubleshooting
+
+**Windows**: If PowerShell script doesn't run:
+```powershell
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+**Windows**: If OpenSSH not available, use alternative tools:
+- WinSCP (GUI file transfer)
+- PuTTY/pscp (command-line SSH)
+- Git Bash (run Linux deploy.sh script)
+
+**Linux**: If deployment fails, check SSH key permissions:
+```bash
+chmod 600 ~/.ssh/id_rsa
+```
+
 ## Architecture
 
 ### Core Design Principles

@@ -8,3 +8,7 @@ graph.db
 backups/
 vendor/
 graph.db
+
+# Deployment
+deploy.config
+*_backups/
