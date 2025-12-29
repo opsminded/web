@@ -426,4 +426,139 @@ class ApiHandlerTest extends TestCase {
         $this->assertArrayHasKey('history', $result);
         $this->assertEmpty($result['history']);
     }
+
+    public function testCreateNodeMissingCategory(): void {
+        $result = $this->apiHandler->createNode('node1', ['label' => 'Test', 'type' => 'server']);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Category is required', $result['error']);
+        $this->assertEquals(400, $result['code']);
+    }
+
+    public function testCreateNodeEmptyCategory(): void {
+        $result = $this->apiHandler->createNode('node1', ['label' => 'Test', 'category' => '', 'type' => 'server']);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Category is required', $result['error']);
+        $this->assertEquals(400, $result['code']);
+    }
+
+    public function testCreateNodeInvalidCategory(): void {
+        $result = $this->apiHandler->createNode('node1', ['label' => 'Test', 'category' => 'invalid', 'type' => 'server']);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Invalid category', $result['error']);
+        $this->assertStringContainsString('business, application, infrastructure', $result['error']);
+        $this->assertEquals(400, $result['code']);
+    }
+
+    public function testCreateNodeMissingType(): void {
+        $result = $this->apiHandler->createNode('node1', ['label' => 'Test', 'category' => 'business']);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Type is required', $result['error']);
+        $this->assertEquals(400, $result['code']);
+    }
+
+    public function testCreateNodeEmptyType(): void {
+        $result = $this->apiHandler->createNode('node1', ['label' => 'Test', 'category' => 'business', 'type' => '']);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Type is required', $result['error']);
+        $this->assertEquals(400, $result['code']);
+    }
+
+    public function testCreateNodeInvalidType(): void {
+        $result = $this->apiHandler->createNode('node1', ['label' => 'Test', 'category' => 'business', 'type' => 'invalid']);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Invalid type', $result['error']);
+        $this->assertStringContainsString('server, database, application, network', $result['error']);
+        $this->assertEquals(400, $result['code']);
+    }
+
+    public function testUpdateNodeEmptyCategory(): void {
+        $this->graph->add_node('node1', ['label' => 'Test', 'category' => 'business', 'type' => 'server']);
+
+        $result = $this->apiHandler->updateNode('node1', ['category' => '']);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Category cannot be empty', $result['error']);
+        $this->assertStringContainsString('business, application, infrastructure', $result['error']);
+        $this->assertEquals(400, $result['code']);
+    }
+
+    public function testUpdateNodeInvalidCategory(): void {
+        $this->graph->add_node('node1', ['label' => 'Test', 'category' => 'business', 'type' => 'server']);
+
+        $result = $this->apiHandler->updateNode('node1', ['category' => 'invalid']);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Invalid category', $result['error']);
+        $this->assertStringContainsString('business, application, infrastructure', $result['error']);
+        $this->assertEquals(400, $result['code']);
+    }
+
+    public function testUpdateNodeValidCategory(): void {
+        $this->graph->add_node('node1', ['label' => 'Test', 'category' => 'business', 'type' => 'server']);
+
+        $result = $this->apiHandler->updateNode('node1', ['category' => 'infrastructure']);
+
+        $this->assertTrue($result['success']);
+        $this->assertEquals('Node updated successfully', $result['message']);
+    }
+
+    public function testUpdateNodeEmptyType(): void {
+        $this->graph->add_node('node1', ['label' => 'Test', 'category' => 'business', 'type' => 'server']);
+
+        $result = $this->apiHandler->updateNode('node1', ['type' => '']);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Type cannot be empty', $result['error']);
+        $this->assertStringContainsString('server, database, application, network', $result['error']);
+        $this->assertEquals(400, $result['code']);
+    }
+
+    public function testUpdateNodeInvalidType(): void {
+        $this->graph->add_node('node1', ['label' => 'Test', 'category' => 'business', 'type' => 'server']);
+
+        $result = $this->apiHandler->updateNode('node1', ['type' => 'invalid']);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Invalid type', $result['error']);
+        $this->assertStringContainsString('server, database, application, network', $result['error']);
+        $this->assertEquals(400, $result['code']);
+    }
+
+    public function testUpdateNodeValidType(): void {
+        $this->graph->add_node('node1', ['label' => 'Test', 'category' => 'business', 'type' => 'server']);
+
+        $result = $this->apiHandler->updateNode('node1', ['type' => 'database']);
+
+        $this->assertTrue($result['success']);
+        $this->assertEquals('Node updated successfully', $result['message']);
+    }
+
+    public function testGetAllowedCategories(): void {
+        $result = $this->apiHandler->getAllowedCategories();
+
+        $this->assertArrayHasKey('allowed_categories', $result);
+        $this->assertIsArray($result['allowed_categories']);
+        $this->assertContains('business', $result['allowed_categories']);
+        $this->assertContains('application', $result['allowed_categories']);
+        $this->assertContains('infrastructure', $result['allowed_categories']);
+        $this->assertCount(3, $result['allowed_categories']);
+    }
+
+    public function testGetAllowedTypes(): void {
+        $result = $this->apiHandler->getAllowedTypes();
+
+        $this->assertArrayHasKey('allowed_types', $result);
+        $this->assertIsArray($result['allowed_types']);
+        $this->assertContains('server', $result['allowed_types']);
+        $this->assertContains('database', $result['allowed_types']);
+        $this->assertContains('application', $result['allowed_types']);
+        $this->assertContains('network', $result['allowed_types']);
+        $this->assertCount(4, $result['allowed_types']);
+    }
 }
