@@ -76,7 +76,7 @@ class ApiHandlerTest extends TestCase {
     }
 
     public function testCreateNodeSuccess(): void {
-        $result = $this->apiHandler->createNode('node1', ['label' => 'Test']);
+        $result = $this->apiHandler->createNode('node1', ['label' => 'Test', 'category' => 'business', 'type' => 'server']);
 
         $this->assertTrue($result['success']);
         $this->assertEquals('Node created successfully', $result['message']);
@@ -86,9 +86,9 @@ class ApiHandlerTest extends TestCase {
 
     public function testCreateNodeFailure(): void {
         // Create node first to cause failure on duplicate
-        $this->graph->add_node('node1', ['label' => 'Existing']);
+        $this->graph->add_node('node1', ['label' => 'Existing', 'category' => 'business', 'type' => 'server']);
 
-        $result = $this->apiHandler->createNode('node1', ['label' => 'Test']);
+        $result = $this->apiHandler->createNode('node1', ['label' => 'Test', 'category' => 'business', 'type' => 'server']);
 
         $this->assertFalse($result['success']);
         $this->assertEquals('Node already exists or creation failed', $result['error']);
