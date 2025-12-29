@@ -5,6 +5,7 @@ namespace Internet\Graph;
 use PDO;
 use PDOException;
 use RuntimeException;
+use Exception;
 
 class GraphDatabase {
     private string $db_file;
@@ -676,5 +677,121 @@ class GraphDatabase {
 
     public function getDbFilePath(): string {
         return $this->db_file;
+    }
+
+    public function createBackup(?string $backup_name = null): array {
+        $this->closeConnection(); // Close existing connection before backup
+
+        try {
+            // Generate backup filename
+            if ($backup_name === null) {
+                $backup_name = 'backup_' . date('Y-m-d_H-i-s') . '_' . rand(1000, 9999);
+            }
+
+            $backup_dir = dirname($this->db_file) . '/backups';
+            if (!is_dir($backup_dir)) {
+                // @codeCoverageIgnoreStart
+                if (!mkdir($backup_dir, 0755, true)) {
+                    throw new RuntimeException("Failed to create backup directory");
+                }
+                // @codeCoverageIgnoreEnd
+            }
+
+            $backup_file = $backup_dir . '/' . $backup_name . '.db';
+
+            // Check if backup already exists
+            if (file_exists($backup_file)) {
+                return [
+                    'success' => false,
+                    'error' => 'Backup file already exists',
+                    'file' => $backup_file
+                ];
+            }
+
+            // Simple file copy
+            // @codeCoverageIgnoreStart
+            if (!copy($this->db_file, $backup_file)) {
+                throw new RuntimeException("Failed to copy database file");
+            }
+            // @codeCoverageIgnoreEnd
+
+            $file_size = filesize($backup_file);
+
+            return [
+                'success' => true,
+                'file' => $backup_file,
+                'backup_name' => $backup_name,
+                'file_size' => $file_size
+            ];
+        // @codeCoverageIgnoreStart
+        } catch (Exception $e) {
+            error_log("GraphDatabase create backup failed: " . $e->getMessage());
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+        // @codeCoverageIgnoreEnd
+    }
+
+    public function restoreToTimestamp(string $timestamp): bool {
+        try {
+            $this->beginTransaction();
+
+            // Get all audit logs after the specified timestamp in reverse order
+            $logs = $this->fetchAuditLogsAfterTimestamp($timestamp);
+
+            // Reverse each operation
+            foreach ($logs as $log) {
+                $entity_type = $log['entity_type'];
+                $entity_id = $log['entity_id'];
+                $action = $log['action'];
+                $old_data = $log['old_data'];
+
+                // Skip restore actions to avoid infinite loops
+                if ($action === 'restore' || $action === 'restore_delete') {
+                    continue;
+                }
+
+                if ($entity_type === 'node') {
+                    if ($action === 'delete' && $old_data !== null) {
+                        // Restore deleted node
+                        $this->insertNodeOrIgnore($entity_id, $old_data);
+                    } elseif ($action === 'create') {
+                        // Remove created node (and its edges)
+                        $this->deleteEdgesByNode($entity_id);
+                        $this->deleteNode($entity_id);
+                    } elseif ($action === 'update' && $old_data !== null) {
+                        // Restore to old data
+                        $this->updateNode($entity_id, $old_data);
+                    }
+                } elseif ($entity_type === 'edge') {
+                    if ($action === 'delete' && $old_data !== null) {
+                        // Restore deleted edge (only if both nodes exist)
+                        $source_exists = $this->nodeExists($old_data['source']);
+                        $target_exists = $this->nodeExists($old_data['target']);
+
+                        if ($source_exists && $target_exists) {
+                            $this->insertEdgeOrIgnore($entity_id, $old_data['source'], $old_data['target'], $old_data);
+                        }
+                    } elseif ($action === 'create') {
+                        // Remove created edge
+                        $this->deleteEdge($entity_id);
+                    } elseif ($action === 'update' && $old_data !== null) {
+                        // Restore to old data
+                        $this->updateEdge($entity_id, $old_data['source'], $old_data['target'], $old_data);
+                    }
+                }
+            }
+
+            $this->commit();
+            return true;
+        // @codeCoverageIgnoreStart
+        } catch (Exception $e) {
+            $this->rollBack();
+            error_log("GraphDatabase restore to timestamp failed: " . $e->getMessage());
+            return false;
+        }
+        // @codeCoverageIgnoreEnd
     }
 }

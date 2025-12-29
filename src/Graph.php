@@ -183,64 +183,56 @@ class Graph {
     }
 
     public function create_backup(?string $backup_name = null): array {
-        $this->database->closeConnection(); // Close existing connection before backup
+        $result = $this->database->createBackup($backup_name);
 
+        // Log the backup if successful
+        if ($result['success']) {
+            $this->audit_log('system', 'graph', 'backup', null, [
+                'backup_file' => $result['file'],
+                'backup_name' => $result['backup_name'],
+                'file_size' => $result['file_size']
+            ]);
+        }
+
+        return $result;
+    }
+
+    public function restore_to_timestamp(string $timestamp): bool {
         try {
-            // Generate backup filename
-            if ($backup_name === null) {
-                $backup_name = 'backup_' . date('Y-m-d_H-i-s') . '_' . rand(1000, 9999);
-            }
-
-            $db_file = $this->database->getDbFilePath();
-            $backup_dir = dirname($db_file) . '/backups';
-            if (!is_dir($backup_dir)) {
+            // Create backup before restoring
+            $backup_name = 'pre_restore_timestamp_' . str_replace([' ', ':'], ['_', '-'], $timestamp);
+            $backup_result = $this->database->createBackup($backup_name);
+            if (!$backup_result['success']) {
                 // @codeCoverageIgnoreStart
-                if (!mkdir($backup_dir, 0755, true)) {
-                    throw new RuntimeException("Failed to create backup directory");
-                }
+                error_log("Failed to create backup before restore: " . ($backup_result['error'] ?? 'Unknown error'));
+                return false;
                 // @codeCoverageIgnoreEnd
             }
 
-            $backup_file = $backup_dir . '/' . $backup_name . '.db';
-
-            // Check if backup already exists
-            if (file_exists($backup_file)) {
-                return [
-                    'success' => false,
-                    'error' => 'Backup file already exists',
-                    'file' => $backup_file
-                ];
-            }
-
-            // Simple file copy
-            // @codeCoverageIgnoreStart
-            if (!copy($db_file, $backup_file)) {
-                throw new RuntimeException("Failed to copy database file");
-            }
-            // @codeCoverageIgnoreEnd
-
-            $file_size = filesize($backup_file);
-
             // Log the backup
             $this->audit_log('system', 'graph', 'backup', null, [
-                'backup_file' => $backup_file,
-                'backup_name' => $backup_name,
-                'file_size' => $file_size
+                'backup_file' => $backup_result['file'],
+                'backup_name' => $backup_result['backup_name'],
+                'file_size' => $backup_result['file_size']
             ]);
 
-            return [
-                'success' => true,
-                'file' => $backup_file,
-                'backup_name' => $backup_name,
-                'file_size' => $file_size
-            ];
+            // Perform the restore
+            $result = $this->database->restoreToTimestamp($timestamp);
+
+            // Log the restore operation if successful
+            if ($result) {
+                $logs = $this->database->fetchAuditLogsAfterTimestamp($timestamp);
+                $this->audit_log('system', 'graph', 'restore_to_timestamp', null, [
+                    'timestamp' => $timestamp,
+                    'operations_reversed' => count($logs)
+                ]);
+            }
+
+            return $result;
         // @codeCoverageIgnoreStart
         } catch (Exception $e) {
-            error_log("Graph create backup failed: " . $e->getMessage());
-            return [
-                'success' => false,
-                'error' => $e->getMessage()
-            ];
+            error_log("Graph restore to timestamp failed: " . $e->getMessage());
+            return false;
         }
         // @codeCoverageIgnoreEnd
     }
@@ -253,13 +245,20 @@ class Graph {
         try {
             // Create backup before restoring
             $backup_name = 'pre_restore_entity_' . $entity_type . '_' . $entity_id . '_' . date('Y-m-d_H-i-s') . '_' . rand(1000, 9999);
-            $backup_result = $this->create_backup($backup_name);
+            $backup_result = $this->database->createBackup($backup_name);
             if (!$backup_result['success']) {
                 // @codeCoverageIgnoreStart
                 error_log("Failed to create backup before restore: " . ($backup_result['error'] ?? 'Unknown error'));
                 return false;
                 // @codeCoverageIgnoreEnd
             }
+
+            // Log the backup
+            $this->audit_log('system', 'graph', 'backup', null, [
+                'backup_file' => $backup_result['file'],
+                'backup_name' => $backup_result['backup_name'],
+                'file_size' => $backup_result['file_size']
+            ]);
 
             $this->database->beginTransaction();
 
@@ -311,80 +310,6 @@ class Graph {
         } catch (Exception $e) {
             $this->database->rollBack();
             error_log("Graph restore entity failed: " . $e->getMessage());
-            return false;
-        }
-        // @codeCoverageIgnoreEnd
-    }
-
-    public function restore_to_timestamp(string $timestamp): bool {
-        try {
-            // Create backup before restoring
-            $backup_name = 'pre_restore_timestamp_' . str_replace([' ', ':'], ['_', '-'], $timestamp);
-            $backup_result = $this->create_backup($backup_name);
-            if (!$backup_result['success']) {
-                // @codeCoverageIgnoreStart
-                error_log("Failed to create backup before restore: " . ($backup_result['error'] ?? 'Unknown error'));
-                return false;
-                // @codeCoverageIgnoreEnd
-            }
-
-            $this->database->beginTransaction();
-
-            // Get all audit logs after the specified timestamp in reverse order
-            $logs = $this->database->fetchAuditLogsAfterTimestamp($timestamp);
-
-            // Reverse each operation
-            foreach ($logs as $log) {
-                $entity_type = $log['entity_type'];
-                $entity_id = $log['entity_id'];
-                $action = $log['action'];
-                $old_data = $log['old_data'];
-
-                // Skip restore actions to avoid infinite loops
-                if ($action === 'restore' || $action === 'restore_delete') {
-                    continue;
-                }
-
-                if ($entity_type === 'node') {
-                    if ($action === 'delete' && $old_data !== null) {
-                        // Restore deleted node
-                        $this->database->insertNodeOrIgnore($entity_id, $old_data);
-                    } elseif ($action === 'create') {
-                        // Remove created node (and its edges)
-                        $this->database->deleteEdgesByNode($entity_id);
-                        $this->database->deleteNode($entity_id);
-                    } elseif ($action === 'update' && $old_data !== null) {
-                        // Restore to old data
-                        $this->database->updateNode($entity_id, $old_data);
-                    }
-                } elseif ($entity_type === 'edge') {
-                    if ($action === 'delete' && $old_data !== null) {
-                        // Restore deleted edge (only if both nodes exist)
-                        $source_exists = $this->database->nodeExists($old_data['source']);
-                        $target_exists = $this->database->nodeExists($old_data['target']);
-
-                        if ($source_exists && $target_exists) {
-                            $this->database->insertEdgeOrIgnore($entity_id, $old_data['source'], $old_data['target'], $old_data);
-                        }
-                    } elseif ($action === 'create') {
-                        // Remove created edge
-                        $this->database->deleteEdge($entity_id);
-                    } elseif ($action === 'update' && $old_data !== null) {
-                        // Restore to old data
-                        $this->database->updateEdge($entity_id, $old_data['source'], $old_data['target'], $old_data);
-                    }
-                }
-            }
-
-            // Log the restore operation
-            $this->audit_log('system', 'graph', 'restore_to_timestamp', null, ['timestamp' => $timestamp, 'operations_reversed' => count($logs)]);
-
-            $this->database->commit();
-            return true;
-        // @codeCoverageIgnoreStart
-        } catch (Exception $e) {
-            $this->database->rollBack();
-            error_log("Graph restore to timestamp failed: " . $e->getMessage());
             return false;
         }
         // @codeCoverageIgnoreEnd
