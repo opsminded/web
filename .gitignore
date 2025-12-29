@@ -6,7 +6,6 @@ coverrep/
 .env
 graph.db
 backups/
-vendor/
 graph.db
 
 # Deployment
