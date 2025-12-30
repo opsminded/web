@@ -24,6 +24,8 @@ class ApiHandler {
 
     /**
      * Get the entire graph
+     *
+     * @deprecated Use GetGraphAction instead
      */
     public function getGraph(): array {
         return $this->graph->get();
@@ -31,6 +33,8 @@ class ApiHandler {
 
     /**
      * Check if a node exists
+     *
+     * @deprecated Use GetNodeAction instead
      */
     public function nodeExists(string $id): array {
         $exists = $this->graph->node_exists($id);
@@ -39,6 +43,8 @@ class ApiHandler {
 
     /**
      * Create a new node
+     *
+     * @deprecated Use CreateNodeAction instead
      */
     public function createNode(string $id, array $data): array {
         // Validate required category field
@@ -93,6 +99,8 @@ class ApiHandler {
 
     /**
      * Update an existing node
+     *
+     * @deprecated Use UpdateNodeAction instead
      */
     public function updateNode(string $id, array $data): array {
         // Validate category if provided
@@ -147,6 +155,8 @@ class ApiHandler {
 
     /**
      * Remove a node
+     *
+     * @deprecated Use DeleteNodeAction instead
      */
     public function removeNode(string $id): array {
         if ($this->graph->remove_node($id)) {
@@ -165,6 +175,8 @@ class ApiHandler {
 
     /**
      * Check if an edge exists by ID
+     *
+     * @deprecated Use GetEdgeAction instead
      */
     public function edgeExists(string $id): array {
         $exists = $this->graph->edge_exists_by_id($id);
@@ -173,6 +185,8 @@ class ApiHandler {
 
     /**
      * Create a new edge
+     *
+     * @deprecated Use CreateEdgeAction instead
      */
     public function createEdge(string $id, string $source, string $target, array $data = []): array {
         if ($this->graph->add_edge($id, $source, $target, $data)) {
@@ -191,6 +205,8 @@ class ApiHandler {
 
     /**
      * Remove an edge
+     *
+     * @deprecated Use DeleteEdgeAction instead
      */
     public function removeEdge(string $id): array {
         if ($this->graph->remove_edge($id)) {
@@ -209,6 +225,8 @@ class ApiHandler {
 
     /**
      * Remove all edges from a source node
+     *
+     * @deprecated Use DeleteEdgesFromAction instead
      */
     public function removeEdgesFrom(string $source): array {
         if ($this->graph->remove_edges_from($source)) {
@@ -229,6 +247,8 @@ class ApiHandler {
 
     /**
      * Create a backup
+     *
+     * @deprecated Use CreateBackupAction instead
      */
     public function createBackup(?string $backup_name = null): array {
         $result = $this->graph->create_backup($backup_name);
@@ -250,6 +270,8 @@ class ApiHandler {
 
     /**
      * Get audit history
+     *
+     * @deprecated Use GetAuditHistoryAction instead
      */
     public function getAuditHistory(?string $entity_type = null, ?string $entity_id = null): array {
         $history = $this->graph->get_audit_history($entity_type, $entity_id);
@@ -258,6 +280,8 @@ class ApiHandler {
 
     /**
      * Restore a specific entity
+     *
+     * @deprecated Use RestoreEntityAction instead
      */
     public function restoreEntity(string $entity_type, string $entity_id, int $audit_log_id): array {
         if ($this->graph->restore_entity($entity_type, $entity_id, $audit_log_id)) {
@@ -275,6 +299,8 @@ class ApiHandler {
 
     /**
      * Restore graph to a specific timestamp
+     *
+     * @deprecated Use RestoreToTimestampAction instead
      */
     public function restoreToTimestamp(string $timestamp): array {
         if ($this->graph->restore_to_timestamp($timestamp)) {
@@ -294,6 +320,8 @@ class ApiHandler {
 
     /**
      * Get allowed status values
+     *
+     * @deprecated Use GetAllowedStatusesAction instead
      */
     public function getAllowedStatuses(): array {
         return ['allowed_statuses' => self::ALLOWED_STATUSES];
@@ -315,6 +343,8 @@ class ApiHandler {
 
     /**
      * Get status of all nodes
+     *
+     * @deprecated Use GetAllNodeStatusesAction instead
      */
     public function getAllNodeStatuses(): array {
         $statuses = $this->graph->status();
@@ -327,6 +357,8 @@ class ApiHandler {
 
     /**
      * Get status of a specific node
+     *
+     * @deprecated Use GetNodeStatusAction instead
      */
     public function getNodeStatus(string $node_id): array {
         $status = $this->graph->get_node_status($node_id);
@@ -345,6 +377,8 @@ class ApiHandler {
 
     /**
      * Set status of a node
+     *
+     * @deprecated Use SetNodeStatusAction instead
      */
     public function setNodeStatus(string $node_id, string $status): array {
         // Validate status
@@ -372,6 +406,8 @@ class ApiHandler {
 
     /**
      * Get status history of a node
+     *
+     * @deprecated Use GetNodeStatusHistoryAction instead
      */
     public function getNodeStatusHistory(string $node_id): array {
         $history = $this->graph->get_node_status_history($node_id);

@@ -21,24 +21,37 @@ use Internet\Graph\Authenticator;
 use Internet\Graph\Config;
 use Internet\Graph\SessionManager;
 use Internet\Graph\AuditContext;
+use Internet\Graph\Container\ContainerFactory;
+use Internet\Graph\Action\Graph\GetGraphAction;
+use Internet\Graph\Action\Node\CreateNodeAction;
+use Internet\Graph\Action\Node\GetNodeAction;
+use Internet\Graph\Action\Node\UpdateNodeAction;
+use Internet\Graph\Action\Node\DeleteNodeAction;
+use Internet\Graph\Action\Node\GetNodeStatusAction;
+use Internet\Graph\Action\Node\SetNodeStatusAction;
+use Internet\Graph\Action\Node\GetNodeStatusHistoryAction;
+use Internet\Graph\Action\Edge\CreateEdgeAction;
+use Internet\Graph\Action\Edge\GetEdgeAction;
+use Internet\Graph\Action\Edge\DeleteEdgeAction;
+use Internet\Graph\Action\Edge\DeleteEdgesFromAction;
+use Internet\Graph\Action\Auth\LoginAction;
+use Internet\Graph\Action\Auth\LogoutAction;
+use Internet\Graph\Action\Auth\GetAuthStatusAction;
+use Internet\Graph\Action\Auth\GetCsrfTokenAction;
+use Internet\Graph\Action\Backup\CreateBackupAction;
+use Internet\Graph\Action\Audit\GetAuditHistoryAction;
+use Internet\Graph\Action\Restore\RestoreEntityAction;
+use Internet\Graph\Action\Restore\RestoreToTimestampAction;
+use Internet\Graph\Action\Status\GetAllNodeStatusesAction;
+use Internet\Graph\Action\Status\GetAllowedStatusesAction;
+use Internet\Graph\Middleware\ExceptionHandlerMiddleware;
+use Internet\Graph\Middleware\ResponseTransformerMiddleware;
 
 require __DIR__ . '/../vendor/autoload.php';
 
 // Load configuration
 Config::load();
 SessionManager::start();
-
-// Create Slim app
-$app = AppFactory::create();
-$app->addRoutingMiddleware();
-
-// Add error middleware
-$errorMiddleware = $app->addErrorMiddleware(true, true, true);
-
-// Initialize dependencies
-$valid_bearer_tokens = Config::getAuthBearerTokens();
-$valid_users = Config::getAuthUsers();
-$authenticator = new Authenticator($valid_bearer_tokens, $valid_users);
 
 // Database setup
 $db_path = Config::get('DB_PATH');
@@ -60,8 +73,21 @@ if (!str_starts_with($db_path, '/')) {
     $db_file = $db_path;
 }
 
-$graph = new Graph($db_file);
-$api = new ApiHandler($graph);
+// Create DI container
+$container = ContainerFactory::create($db_file);
+
+// Create Slim app with container
+AppFactory::setContainer($container);
+$app = AppFactory::create();
+$app->addRoutingMiddleware();
+
+// Add error middleware
+$errorMiddleware = $app->addErrorMiddleware(true, true, true);
+
+// Get dependencies from container
+$authenticator = $container->get(Authenticator::class);
+$graph = $container->get(Graph::class);
+$api = $container->get(ApiHandler::class);
 
 // ============================================================================
 // MIDDLEWARE
@@ -150,6 +176,12 @@ $csrfMiddleware = function (Request $request, $handler) {
 
 $app->add($csrfMiddleware);
 
+// Response Transformer Middleware - wraps successful responses with metadata
+$app->add(new ResponseTransformerMiddleware());
+
+// Exception Handler Middleware - catches exceptions and formats error responses
+$app->add(new ExceptionHandlerMiddleware());
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
@@ -179,182 +211,67 @@ function handleApiResult(Response $response, array $result): Response {
 // ROUTES
 // ============================================================================
 
-// Authentication routes
-$app->group('/api.php/auth', function (RouteCollectorProxy $group) use ($valid_users) {
-    $group->post('/login', function (Request $request, Response $response) use ($valid_users) {
-        $body = $request->getParsedBody();
-        $username = $body['username'] ?? null;
-        $password = $body['password'] ?? null;
-
-        if (!$username || !$password) {
-            return jsonResponse($response, ['error' => 'Missing username or password'], 400);
-        }
-
-        if (isset($valid_users[$username]) && password_verify($password, $valid_users[$username])) {
-            SessionManager::setUser($username);
-            return jsonResponse($response, [
-                'success' => true,
-                'message' => 'Login successful',
-                'data' => [
-                    'user' => $username,
-                    'csrf_token' => SessionManager::getCsrfToken()
-                ]
-            ]);
-        }
-
-        return jsonResponse($response, ['error' => 'Invalid credentials'], 401);
-    });
-
-    $group->post('/logout', function (Request $request, Response $response) {
-        SessionManager::destroy();
-        return jsonResponse($response, ['success' => true, 'message' => 'Logout successful']);
-    });
-
-    $group->get('/status', function (Request $request, Response $response) {
-        return jsonResponse($response, [
-            'authenticated' => SessionManager::isAuthenticated(),
-            'user' => SessionManager::getUser(),
-            'csrf_token' => SessionManager::isAuthenticated() ? SessionManager::getCsrfToken() : null
-        ]);
-    });
-
-    $group->get('/csrf', function (Request $request, Response $response) {
-        if (!SessionManager::isAuthenticated()) {
-            return jsonResponse($response, ['error' => 'Not authenticated'], 401);
-        }
-        return jsonResponse($response, ['csrf_token' => SessionManager::getCsrfToken()]);
-    });
+// Authentication routes - NEW PATTERN (Action classes)
+$app->group('/api.php/auth', function (RouteCollectorProxy $group) {
+    $group->post('/login', LoginAction::class);
+    $group->post('/logout', LogoutAction::class);
+    $group->get('/status', GetAuthStatusAction::class);
+    $group->get('/csrf', GetCsrfTokenAction::class);
 });
 
 // Graph routes
+// OLD PATTERN (using closure + ApiHandler)
 $app->get('/api.php', function (Request $request, Response $response) use ($api) {
     return jsonResponse($response, $api->getGraph());
 });
 
-$app->get('/api.php/graph', function (Request $request, Response $response) use ($api) {
-    return jsonResponse($response, $api->getGraph());
-});
+// NEW PATTERN (using Action class with DI container)
+// The container automatically injects Graph into GetGraphAction constructor
+$app->get('/api.php/graph', GetGraphAction::class);
 
-// Node routes
-$app->group('/api.php/nodes', function (RouteCollectorProxy $group) use ($api) {
-    $group->post('', function (Request $request, Response $response) use ($api) {
-        $body = $request->getParsedBody();
-        if (!isset($body['id']) || !isset($body['data'])) {
-            return jsonResponse($response, ['error' => 'Missing required fields: id, data'], 400);
-        }
-        $result = $api->createNode($body['id'], $body['data']);
-        return handleApiResult($response, $result);
-    });
+// Node routes - NEW PATTERN (Action classes with DI)
+$app->group('/api.php/nodes', function (RouteCollectorProxy $group) {
+    // Create node
+    $group->post('', CreateNodeAction::class);
 
-    $group->get('/{id}', function (Request $request, Response $response, array $args) use ($api) {
-        return jsonResponse($response, $api->nodeExists(urldecode($args['id'])));
-    });
+    // Get node (check existence)
+    $group->get('/{id}', GetNodeAction::class);
 
-    $group->put('/{id}', function (Request $request, Response $response, array $args) use ($api) {
-        $body = $request->getParsedBody();
-        if (!isset($body['data'])) {
-            return jsonResponse($response, ['error' => 'Missing required field: data'], 400);
-        }
-        $result = $api->updateNode(urldecode($args['id']), $body['data']);
-        return handleApiResult($response, $result);
-    });
+    // Update node
+    $group->put('/{id}', UpdateNodeAction::class);
 
-    $group->delete('/{id}', function (Request $request, Response $response, array $args) use ($api) {
-        $result = $api->removeNode(urldecode($args['id']));
-        return handleApiResult($response, $result);
-    });
+    // Delete node
+    $group->delete('/{id}', DeleteNodeAction::class);
 
     // Node status routes
-    $group->get('/{id}/status', function (Request $request, Response $response, array $args) use ($api) {
-        $result = $api->getNodeStatus(urldecode($args['id']));
-        return handleApiResult($response, $result);
-    });
-
-    $group->get('/{id}/status/history', function (Request $request, Response $response, array $args) use ($api) {
-        return jsonResponse($response, $api->getNodeStatusHistory(urldecode($args['id'])));
-    });
-
-    $group->post('/{id}/status', function (Request $request, Response $response, array $args) use ($api) {
-        $body = $request->getParsedBody();
-        if (!isset($body['status'])) {
-            return jsonResponse($response, ['error' => 'Missing required field: status'], 400);
-        }
-        $result = $api->setNodeStatus(urldecode($args['id']), $body['status']);
-        return handleApiResult($response, $result);
-    });
+    $group->get('/{id}/status/history', GetNodeStatusHistoryAction::class);
+    $group->get('/{id}/status', GetNodeStatusAction::class);
+    $group->post('/{id}/status', SetNodeStatusAction::class);
 });
 
-// Edge routes
-$app->group('/api.php/edges', function (RouteCollectorProxy $group) use ($api) {
-    $group->post('', function (Request $request, Response $response) use ($api) {
-        $body = $request->getParsedBody();
-        if (!isset($body['id']) || !isset($body['source']) || !isset($body['target'])) {
-            return jsonResponse($response, ['error' => 'Missing required fields: id, source, target'], 400);
-        }
-        $result = $api->createEdge($body['id'], $body['source'], $body['target'], $body['data'] ?? []);
-        return handleApiResult($response, $result);
-    });
-
-    $group->get('/{id}', function (Request $request, Response $response, array $args) use ($api) {
-        return jsonResponse($response, $api->edgeExists(urldecode($args['id'])));
-    });
-
-    $group->delete('/{id}', function (Request $request, Response $response, array $args) use ($api) {
-        $result = $api->removeEdge(urldecode($args['id']));
-        return handleApiResult($response, $result);
-    });
-
-    $group->delete('/from/{source}', function (Request $request, Response $response, array $args) use ($api) {
-        $result = $api->removeEdgesFrom(urldecode($args['source']));
-        return handleApiResult($response, $result);
-    });
+// Edge routes - NEW PATTERN (Action classes)
+$app->group('/api.php/edges', function (RouteCollectorProxy $group) {
+    $group->post('', CreateEdgeAction::class);
+    $group->get('/{id}', GetEdgeAction::class);
+    $group->delete('/from/{source}', DeleteEdgesFromAction::class);
+    $group->delete('/{id}', DeleteEdgeAction::class);
 });
 
-// Backup routes
-$app->post('/api.php/backup', function (Request $request, Response $response) use ($api) {
-    $body = $request->getParsedBody();
-    $result = $api->createBackup($body['name'] ?? null);
-    return handleApiResult($response, $result);
+// Backup routes - NEW PATTERN (Action classes)
+$app->post('/api.php/backup', CreateBackupAction::class);
+
+// Audit routes - NEW PATTERN (Action classes)
+$app->get('/api.php/audit', GetAuditHistoryAction::class);
+
+// Restore routes - NEW PATTERN (Action classes)
+$app->group('/api.php/restore', function (RouteCollectorProxy $group) {
+    $group->post('/entity', RestoreEntityAction::class);
+    $group->post('/timestamp', RestoreToTimestampAction::class);
 });
 
-// Audit routes
-$app->get('/api.php/audit', function (Request $request, Response $response) use ($api) {
-    $params = $request->getQueryParams();
-    return jsonResponse($response, $api->getAuditHistory(
-        $params['entity_type'] ?? null,
-        $params['entity_id'] ?? null
-    ));
-});
-
-// Restore routes
-$app->group('/api.php/restore', function (RouteCollectorProxy $group) use ($api) {
-    $group->post('/entity', function (Request $request, Response $response) use ($api) {
-        $body = $request->getParsedBody();
-        if (!isset($body['entity_type']) || !isset($body['entity_id']) || !isset($body['audit_log_id'])) {
-            return jsonResponse($response, ['error' => 'Missing required fields'], 400);
-        }
-        $result = $api->restoreEntity($body['entity_type'], $body['entity_id'], (int)$body['audit_log_id']);
-        return handleApiResult($response, $result);
-    });
-
-    $group->post('/timestamp', function (Request $request, Response $response) use ($api) {
-        $body = $request->getParsedBody();
-        if (!isset($body['timestamp'])) {
-            return jsonResponse($response, ['error' => 'Missing required field: timestamp'], 400);
-        }
-        $result = $api->restoreToTimestamp($body['timestamp']);
-        return handleApiResult($response, $result);
-    });
-});
-
-// Status routes
-$app->get('/api.php/status', function (Request $request, Response $response) use ($api) {
-    return jsonResponse($response, $api->getAllNodeStatuses());
-});
-
-$app->get('/api.php/status/allowed', function (Request $request, Response $response) use ($api) {
-    return jsonResponse($response, $api->getAllowedStatuses());
-});
+// Status routes - NEW PATTERN (Action classes)
+$app->get('/api.php/status', GetAllNodeStatusesAction::class);
+$app->get('/api.php/status/allowed', GetAllowedStatusesAction::class);
 
 // Run app
 $app->run();
