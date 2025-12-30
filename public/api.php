@@ -16,7 +16,6 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Slim\Factory\AppFactory;
 use Slim\Routing\RouteCollectorProxy;
 use Internet\Graph\Graph;
-use Internet\Graph\ApiHandler;
 use Internet\Graph\Authenticator;
 use Internet\Graph\Config;
 use Internet\Graph\SessionManager;
@@ -80,14 +79,13 @@ $container = ContainerFactory::create($db_file);
 AppFactory::setContainer($container);
 $app = AppFactory::create();
 $app->addRoutingMiddleware();
+$app->addBodyParsingMiddleware(); // Parse JSON request bodies
 
 // Add error middleware
 $errorMiddleware = $app->addErrorMiddleware(true, true, true);
 
 // Get dependencies from container
 $authenticator = $container->get(Authenticator::class);
-$graph = $container->get(Graph::class);
-$api = $container->get(ApiHandler::class);
 
 // ============================================================================
 // MIDDLEWARE
@@ -183,31 +181,6 @@ $app->add(new ResponseTransformerMiddleware());
 $app->add(new ExceptionHandlerMiddleware());
 
 // ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-function jsonResponse(Response $response, $data, int $status = 200): Response {
-    $response->getBody()->write(json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
-    return $response->withStatus($status)->withHeader('Content-Type', 'application/json');
-}
-
-function handleApiResult(Response $response, array $result): Response {
-    if (isset($result['success']) && $result['success']) {
-        $data = ['success' => true, 'message' => $result['message'] ?? 'Success'];
-        if (isset($result['data'])) {
-            $data['data'] = $result['data'];
-        }
-        return jsonResponse($response, $data);
-    } else {
-        $data = ['error' => $result['error'] ?? 'Operation failed'];
-        if (isset($result['details'])) {
-            $data['details'] = $result['details'];
-        }
-        return jsonResponse($response, $data, $result['code'] ?? 500);
-    }
-}
-
-// ============================================================================
 // ROUTES
 // ============================================================================
 
@@ -220,13 +193,7 @@ $app->group('/api.php/auth', function (RouteCollectorProxy $group) {
 });
 
 // Graph routes
-// OLD PATTERN (using closure + ApiHandler)
-$app->get('/api.php', function (Request $request, Response $response) use ($api) {
-    return jsonResponse($response, $api->getGraph());
-});
-
-// NEW PATTERN (using Action class with DI container)
-// The container automatically injects Graph into GetGraphAction constructor
+$app->get('/api.php', GetGraphAction::class);
 $app->get('/api.php/graph', GetGraphAction::class);
 
 // Node routes - NEW PATTERN (Action classes with DI)

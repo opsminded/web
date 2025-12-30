@@ -204,14 +204,17 @@ chmod 600 ~/.ssh/id_rsa
 
 **Layered Architecture**:
 - `public/api.php`: Entry point, Slim Framework app initialization, routing, middleware
-- `Slim Framework`: HTTP routing, PSR-7 request/response handling, middleware pipeline
-- `ApiHandler`: Business logic layer, validation, response formatting
+- `Slim Framework 4`: HTTP routing, PSR-7 request/response handling, middleware pipeline
+- `Action Classes` (`src/Action/`): Single-responsibility request handlers with validation
 - `Graph`: Domain logic layer, audit logging, transaction coordination
 - `GraphDatabase`: Data access layer, SQL operations, schema management
+- `PHP-DI Container`: Dependency injection for services and actions
 
 **Separation of Concerns**:
-- Routing uses **Slim Framework 4** (Dec 2025): Industry-standard micro-framework for REST APIs with PSR-7 HTTP messages
-- Database operations split into `GraphDatabase` class (commit 35f0afa): All SQL operations in `GraphDatabase`, business logic in `Graph`
+- Routing uses **Slim Framework 4**: Industry-standard micro-framework for REST APIs with PSR-7 HTTP messages
+- **Single-Action Controllers**: Each endpoint has dedicated action class following Slim 4 best practices
+- **PHP-DI Container**: Autowiring and dependency injection for all services
+- Database operations in `GraphDatabase` class: All SQL operations separated from business logic
 
 ### Key Classes
 
@@ -227,13 +230,22 @@ chmod 600 ~/.ssh/id_rsa
 - All methods are public and prefixed by operation type (fetch*, insert*, update*, delete*)
 - Returns raw data structures (arrays with 'data' as JSON strings)
 - Manages schema initialization and database connection
-- Used only by `Graph` class, never directly by `ApiHandler`
+- Used only by `Graph` class, never directly by Action classes
 
-**ApiHandler** (`src/ApiHandler.php`):
-- Validates input (e.g., checks category/type against allowed constants)
-- Returns structured arrays with 'success', 'error', 'code' keys
-- Never calls `GraphDatabase` directly - always through `Graph`
-- Contains validation constants: `ALLOWED_STATUSES`, `ALLOWED_CATEGORIES`, `ALLOWED_TYPES`
+**Action Classes** (`src/Action/**/*.php`):
+- Single-responsibility controllers: one class per endpoint (Slim 4 best practice)
+- Extend `AbstractAction` base class with helper methods
+- Receive dependencies via constructor injection (PHP-DI autowiring)
+- Validate input using constants (`ALLOWED_STATUSES`, `ALLOWED_CATEGORIES`, `ALLOWED_TYPES`)
+- Call `Graph` for business logic (never `GraphDatabase` directly)
+- Return PSR-7 Response objects
+- Organized by resource: `Node/`, `Edge/`, `Auth/`, `Backup/`, `Audit/`, `Restore/`, `Status/`
+
+**Container** (`src/Container/ContainerFactory.php`):
+- Configures PHP-DI dependency injection container
+- Registers services: `Graph`, `Authenticator`
+- Enables autowiring for automatic dependency resolution
+- Actions receive `Graph` instance via constructor injection
 
 **AuditContext** (`src/AuditContext.php`):
 - Thread-safe singleton for request-scoped user/IP tracking
@@ -255,77 +267,158 @@ chmod 600 ~/.ssh/id_rsa
 
 ### Adding New Routes
 
-To add a new API endpoint, edit `public/api.php` and add a route definition:
+To add a new API endpoint, follow the **Action-based pattern** (Slim 4 best practice):
 
-**Simple route:**
-```php
-$app->get('/api.php/my/route', function (Request $request, Response $response) use ($api) {
-    $data = $api->myMethod();
-    return jsonResponse($response, $data);
-});
-```
+**Step 1: Create an Action Class**
 
-**Route with parameters:**
-```php
-$app->post('/api.php/my/{id}/action', function (Request $request, Response $response, array $args) use ($api) {
-    $id = urldecode($args['id']);  // URL decode parameter
-    $body = $request->getParsedBody();  // Get JSON body
-    $result = $api->myMethod($id, $body['field']);
-    return handleApiResult($response, $result);
-});
-```
-
-**Grouped routes:**
-```php
-$app->group('/api.php/my', function (RouteCollectorProxy $group) use ($api) {
-    $group->get('', function (Request $request, Response $response) use ($api) {
-        // GET /api.php/my
-    });
-
-    $group->post('/{id}', function (Request $request, Response $response, array $args) use ($api) {
-        // POST /api.php/my/{id}
-    });
-});
-```
-
-Then add the handler method to `ApiHandler`:
+Create a new file in `src/Action/{Resource}/YourAction.php`:
 
 ```php
-public function myMethod(string $id, string $field): array {
-    // Business logic here
-    return ['success' => true, 'data' => ['id' => $id, 'field' => $field]];
+<?php declare(strict_types=1);
+
+namespace Internet\Graph\Action\{Resource};
+
+use Internet\Graph\Action\AbstractAction;
+use Internet\Graph\Graph;
+use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Http\Message\ServerRequestInterface as Request;
+
+class YourAction extends AbstractAction
+{
+    // Dependencies injected via constructor (autowired by PHP-DI)
+    public function __construct(
+        private Graph $graph
+    ) {
+    }
+
+    public function __invoke(Request $request, Response $response, array $args): Response
+    {
+        // Get route parameters
+        $id = urldecode($args['id'] ?? '');
+
+        // Get request body
+        $body = $this->getParsedBody($request);
+
+        // Get query parameters
+        $queryParams = $this->getQueryParams($request);
+
+        // Validation
+        if (!isset($body['field'])) {
+            return $this->jsonResponse($response, [
+                'error' => 'Missing required field: field'
+            ], 400);
+        }
+
+        // Business logic via Graph
+        $result = $this->graph->someMethod($id, $body['field']);
+
+        // Return response (middleware adds metadata automatically)
+        return $this->jsonResponse($response, [
+            'success' => true,
+            'data' => $result
+        ]);
+    }
 }
 ```
 
-**Slim Route Patterns:**
-- Use `{param}` for dynamic segments (e.g., `/nodes/{id}`)
-- Parameters are automatically extracted into `$args` array
-- Always `urldecode()` parameters that might contain special characters
-- Use `$request->getParsedBody()` for JSON body
-- Use `$request->getQueryParams()` for query strings
-- Return `Response` object with proper status code
+**Step 2: Add Route in `public/api.php`**
 
-**Response Helpers:**
-- `jsonResponse($response, $data, $status)`: Returns JSON response
-- `handleApiResult($response, $result)`: Handles ApiHandler result format (success/error)
+```php
+use Internet\Graph\Action\{Resource}\YourAction;
+
+// Simple route
+$app->get('/api.php/my/route', YourAction::class);
+
+// Route with parameters
+$app->post('/api.php/my/{id}/action', YourAction::class);
+
+// Grouped routes
+$app->group('/api.php/my', function (RouteCollectorProxy $group) {
+    $group->get('', GetMyResourceAction::class);
+    $group->post('', CreateMyResourceAction::class);
+    $group->put('/{id}', UpdateMyResourceAction::class);
+    $group->delete('/{id}', DeleteMyResourceAction::class);
+});
+```
+
+**Step 3: Create Tests** (optional but recommended)
+
+Create `tests/Action/{Resource}/YourActionTest.php`:
+
+```php
+<?php declare(strict_types=1);
+
+use PHPUnit\Framework\TestCase;
+use Internet\Graph\Action\{Resource}\YourAction;
+use Internet\Graph\Graph;
+use Slim\Psr7\Response;
+
+class YourActionTest extends TestCase
+{
+    public function test_your_action_success(): void
+    {
+        $graph = $this->createMock(Graph::class);
+        $graph->expects($this->once())
+            ->method('someMethod')
+            ->willReturn(['result' => 'data']);
+
+        $action = new YourAction($graph);
+        $request = $this->createMock(Request::class);
+        $request->method('getParsedBody')->willReturn(['field' => 'value']);
+
+        $response = new Response();
+        $result = $action($request, $response, ['id' => 'test']);
+
+        $this->assertEquals(200, $result->getStatusCode());
+    }
+}
+```
+
+**Response Format:**
+All responses are automatically wrapped by `ResponseTransformerMiddleware` with metadata:
+```json
+{
+  "success": true,
+  "data": {...},
+  "meta": {
+    "timestamp": "2025-12-30T12:00:00Z",
+    "version": "1.0"
+  }
+}
+```
+
+**Error Format:**
+Errors handled by `ExceptionHandlerMiddleware`:
+```json
+{
+  "success": false,
+  "error": "Error message",
+  "meta": {
+    "timestamp": "2025-12-30T12:00:00Z",
+    "version": "1.0"
+  }
+}
+```
 
 ### Data Flow
 
 1. **Request arrives** at `public/api.php`
-2. **Slim app initializes**: Config loaded, session started, dependencies created
+2. **Slim app initializes**: Config loaded, session started, DI container created
 3. **Routing middleware** parses request and matches route (FastRoute)
 4. **Error middleware** configured for exception handling
 5. **Middleware pipeline executes** (in reverse order of `add()` calls):
+   - **ExceptionHandlerMiddleware** catches and formats exceptions as JSON responses
+   - **ResponseTransformerMiddleware** wraps successful responses with metadata
    - **CSRF middleware** validates tokens for session-authenticated state-changing requests
    - **Auth middleware** checks authentication, initializes AuditContext
    - **CORS middleware** applies headers to response
    - **OPTIONS handler** returns early for preflight requests
-6. **Route handler executes**: Matched route closure runs with `$request`, `$response`, `$args`
-7. **ApiHandler validates** input and calls `Graph` method
+6. **Action class instantiated**: Container autowires dependencies (Graph service)
+7. **Action validates** input and calls `Graph` methods
 8. **Graph coordinates** business logic, calls `GraphDatabase` operations
 9. **Graph logs** operation to audit trail (if state-changing)
-10. **ApiHandler returns** result array
-11. **Route handler formats** result as PSR-7 Response (using `jsonResponse()` or `handleApiResult()`)
+10. **Action returns** PSR-7 Response with data
+11. **ResponseTransformerMiddleware** wraps response with standard format and metadata
 12. **Middleware pipeline unwinds**: CORS headers applied to final response
 13. **Slim app emits** response with HTTP status code, headers, and JSON body
 
@@ -361,25 +454,29 @@ Indexes exist on:
 
 ### Testing Approach
 
-- Each class has corresponding test file: `GraphTest`, `ApiHandlerTest`, `GraphDatabaseTest`, `AuthenticatorTest`, `AuditContextTest`
-- Tests focus on business logic and data layer, not routing (Slim Framework handles routing, well-tested)
+- Each class has corresponding test file: `GraphTest`, `GraphDatabaseTest`, `AuthenticatorTest`, `AuditContextTest`
+- **Action tests**: Each action class tested in isolation with mocked `Graph` dependency (44 tests in `tests/Action/`)
+- **Middleware tests**: `ResponseTransformerMiddleware` tested with various response scenarios
+- Tests focus on business logic and data layer (Graph/GraphDatabase) and action validation
 - Tests use temporary SQLite databases (`graph_test_*.db`) created in `setUp()`, deleted in `tearDown()`
 - Use `@codeCoverageIgnore` for exception paths that are difficult to trigger (PDO errors, filesystem failures)
 - Transaction rollback paths are typically covered in happy path tests by checking final state
-- Test naming: `test_<operation>_<scenario>` (e.g., `test_add_node_success`, `test_add_node_duplicate`)
-- Run all tests: `php phpunit.phar` (164 tests, 402 assertions as of Dec 2025 with Slim Framework)
-- API endpoint testing done via manual `curl` commands or integration tests hitting the Slim app
+- Test naming: `test_<operation>_<scenario>` (e.g., `test_create_node_success`, `test_create_node_invalid_category`)
+- Run all tests: `php phpunit.phar` (164 tests, 401 assertions as of Dec 2025)
+- Integration testing done via manual `curl` commands or Slim test harness
 
 ### Common Gotchas
 
-1. **Don't call GraphDatabase directly from ApiHandler**: Always use `Graph` as intermediary
+1. **Don't call GraphDatabase directly from Actions**: Always use `Graph` as intermediary for business logic and audit logging
 2. **Initialize AuditContext**: Auth middleware initializes this automatically, but ensure it's called before Graph operations
-3. **JSON encoding**: `GraphDatabase` stores/returns JSON strings in 'data' fields; `Graph` and `ApiHandler` work with decoded arrays
+3. **JSON encoding**: `GraphDatabase` stores/returns JSON strings in 'data' fields; `Graph` and Action classes work with decoded arrays
 4. **Node ID duplication**: The node ID exists both as table primary key AND inside the JSON data field (by design)
 5. **Foreign key constraints**: Edges cannot reference non-existent nodes; will throw constraint violation
 6. **Status values**: Only use values from `NodeStatus::ALLOWED_VALUES`: unknown, healthy, unhealthy, maintenance
 7. **Slim route ordering**: Slim matches routes in definition order. Define more specific routes before generic ones (e.g., `/nodes/{id}/status/history` before `/nodes/{id}/status`)
 8. **URL decode parameters**: Always `urldecode($args['id'])` when extracting route parameters that might contain special characters
-9. **ApiHandler response formats**: Some methods return direct data (e.g., `getGraph()`), others return success/error format (e.g., `createNode()`). Use `handleApiResult()` for success/error format, `jsonResponse()` for direct data.
-10. **Middleware order in Slim**: Middleware executes in REVERSE order of `$app->add()` calls. Last added = first executed. CORS should be added first (executes last) to apply headers to all responses.
-11. **PSR-7 responses are immutable**: Always return the modified response: `return $response->withHeader(...)`, not just `$response->withHeader(...)`
+9. **Response format**: All responses automatically wrapped by `ResponseTransformerMiddleware` with `{"success": true/false, "data": {...}, "meta": {...}}` format
+10. **Exception handling**: Throw `GraphException` subclasses (NodeNotFoundException, ValidationException, etc.) for proper error responses with correct HTTP status codes
+11. **Middleware order in Slim**: Middleware executes in REVERSE order of `$app->add()` calls. Last added = first executed. ExceptionHandlerMiddleware should be added last (executes first).
+12. **PSR-7 responses are immutable**: Always return the modified response: `return $response->withHeader(...)`, not just `$response->withHeader(...)`
+13. **Container autowiring**: Action classes receive dependencies via constructor injection. Ensure all dependencies are registered in `ContainerFactory`.

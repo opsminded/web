@@ -7,7 +7,6 @@ use DI\ContainerBuilder;
 use Internet\Graph\Graph;
 use Internet\Graph\GraphDatabase;
 use Internet\Graph\Authenticator;
-use Internet\Graph\ApiHandler;
 use Internet\Graph\Config;
 use Psr\Container\ContainerInterface;
 
@@ -45,10 +44,6 @@ class ContainerFactory
                 $validUsers = Config::getAuthUsers();
                 return new Authenticator($validBearerTokens, $validUsers);
             }),
-
-            // ApiHandler service (for backward compatibility during migration)
-            ApiHandler::class => \DI\create(ApiHandler::class)
-                ->constructor(\DI\get(Graph::class)),
         ]);
 
         return $containerBuilder->build();
