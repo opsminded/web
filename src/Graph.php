@@ -322,10 +322,6 @@ class Graph {
 
         $result = $this->database->insertNodeStatus($node_id, $status);
 
-        if ($result) {
-            $this->audit_log('node_status', $node_id, 'create', null, ['status' => $status]);
-        }
-
         return $result;
     }
 
