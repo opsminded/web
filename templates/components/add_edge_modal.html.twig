@@ -1,0 +1,41 @@
+{# Add Edge Modal Component #}
+<div id="addEdgeModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Add New Edge</h2>
+            <span class="close" onclick="closeAddEdgeModal()">&times;</span>
+        </div>
+        <form id="addEdgeForm" onsubmit="return handleAddEdge(event)">
+            <div class="form-group">
+                <label for="edgeId">Edge ID *</label>
+                <input type="text" id="edgeId" name="edgeId" required>
+                <small>Unique identifier for the edge</small>
+            </div>
+            <div class="form-group">
+                <label for="edgeSource">Source Node *</label>
+                <input type="text" id="edgeSource" name="edgeSource" required list="nodeList">
+                <datalist id="nodeList"></datalist>
+                <small>Source node ID</small>
+            </div>
+            <div class="form-group">
+                <label for="edgeTarget">Target Node *</label>
+                <input type="text" id="edgeTarget" name="edgeTarget" required list="nodeList">
+                <small>Target node ID</small>
+            </div>
+            <div class="form-group">
+                <label for="edgeLabel">Label</label>
+                <input type="text" id="edgeLabel" name="edgeLabel">
+                <small>Relationship label (e.g., "depends on", "connects to")</small>
+            </div>
+            <div class="form-group">
+                <label for="edgeMetadata">Additional Metadata (JSON)</label>
+                <textarea id="edgeMetadata" name="edgeMetadata" placeholder='{"key": "value"}'></textarea>
+                <small>Optional: Additional properties as JSON</small>
+            </div>
+            <div>
+                <button type="submit" class="btn-primary">Create Edge</button>
+                <button type="button" class="btn-secondary" onclick="closeAddEdgeModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>

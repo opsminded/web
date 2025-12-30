@@ -1,0 +1,26 @@
+{% extends "layout/base.html.twig" %}
+
+{% block title %}Graph Database Visualization{% endblock %}
+
+{% block body %}
+    {# Include login modal #}
+    {% include "components/login_modal.html.twig" %}
+
+    {# Include controls panel #}
+    {% include "components/controls.html.twig" %}
+
+    {# Graph visualization container #}
+    <div id="cy"></div>
+
+    {# Info bar #}
+    <div id="info">
+        <strong>Nodes:</strong> <span id="nodeCount">0</span> |
+        <strong>Edges:</strong> <span id="edgeCount">0</span>
+    </div>
+
+    {# Include add node modal #}
+    {% include "components/add_node_modal.html.twig" %}
+
+    {# Include add edge modal #}
+    {% include "components/add_edge_modal.html.twig" %}
+{% endblock %}

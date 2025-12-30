@@ -2,13 +2,12 @@
 
 namespace Internet\Graph\Container;
 
-use DI\Container;
 use DI\ContainerBuilder;
 use Internet\Graph\Graph;
-use Internet\Graph\GraphDatabase;
 use Internet\Graph\Authenticator;
 use Internet\Graph\Config;
 use Psr\Container\ContainerInterface;
+use Slim\Views\Twig;
 
 /**
  * Container Factory
@@ -43,6 +42,15 @@ class ContainerFactory
                 $validBearerTokens = Config::getAuthBearerTokens();
                 $validUsers = Config::getAuthUsers();
                 return new Authenticator($validBearerTokens, $validUsers);
+            }),
+
+            // Twig view service
+            Twig::class => \DI\factory(function () {
+                $templatePath = __DIR__ . '/../../templates';
+                return Twig::create($templatePath, [
+                    'cache' => false,
+                    'debug' => true,
+                ]);
             }),
         ]);
 

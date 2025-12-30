@@ -1,0 +1,56 @@
+{# Add Node Modal Component #}
+<div id="addNodeModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Add New Node</h2>
+            <span class="close" onclick="closeAddNodeModal()">&times;</span>
+        </div>
+        <form id="addNodeForm" onsubmit="return handleAddNode(event)">
+            <div class="form-group">
+                <label for="nodeId">Node ID *</label>
+                <input type="text" id="nodeId" name="nodeId" required>
+                <small>Unique identifier for the node (e.g., web-server-01)</small>
+            </div>
+            <div class="form-group">
+                <label for="nodeCategory">Category *</label>
+                <select id="nodeCategory" name="nodeCategory" required>
+                    <option value="">Select category</option>
+                    <option value="business">Business</option>
+                    <option value="application">Application</option>
+                    <option value="infrastructure">Infrastructure</option>
+                </select>
+                <small>Determines the shape of the node</small>
+            </div>
+            <div class="form-group">
+                <label for="nodeType">Type *</label>
+                <select id="nodeType" name="nodeType" required>
+                    <option value="">Select type</option>
+                    <option value="server">Server</option>
+                    <option value="database">Database</option>
+                    <option value="application">Application</option>
+                    <option value="network">Network</option>
+                </select>
+                <small>Determines the icon of the node</small>
+            </div>
+            <div class="form-group">
+                <label for="nodeLabel">Label</label>
+                <input type="text" id="nodeLabel" name="nodeLabel">
+                <small>Display label (defaults to ID if empty)</small>
+            </div>
+            <div class="form-group">
+                <label for="nodeUrl">URL</label>
+                <input type="url" id="nodeUrl" name="nodeUrl">
+                <small>Optional URL for this resource</small>
+            </div>
+            <div class="form-group">
+                <label for="nodeMetadata">Additional Metadata (JSON)</label>
+                <textarea id="nodeMetadata" name="nodeMetadata" placeholder='{"key": "value"}'></textarea>
+                <small>Optional: Additional properties as JSON</small>
+            </div>
+            <div>
+                <button type="submit" class="btn-primary">Create Node</button>
+                <button type="button" class="btn-secondary" onclick="closeAddNodeModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>

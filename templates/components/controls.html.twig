@@ -1,0 +1,28 @@
+{# Controls Panel Component #}
+<div id="controls">
+    <h3>Controls</h3>
+    <div id="authStatus" style="margin-bottom: 10px; font-size: 12px; color: #666;">
+        <span id="userInfo">Not logged in</span>
+        <button id="logoutBtn" onclick="handleLogout()" style="display: none; font-size: 11px; padding: 4px 8px;">Logout</button>
+    </div>
+
+    <button onclick="openAddNodeModal()">Add Node</button>
+    <button onclick="openAddEdgeModal()">Add Edge</button>
+
+    <div class="divider"></div>
+
+    <button onclick="cy.fit()">Fit to Screen</button>
+    <button onclick="cy.center()">Center</button>
+    <button onclick="cy.reset()">Reset View</button>
+    <button onclick="loadData()">Reload Data</button>
+
+    <label for="categoryFilter">Filter by Category:</label>
+    <select id="categoryFilter" onchange="filterByCategory()">
+        <option value="all">All Categories</option>
+    </select>
+
+    <div class="category-legend">
+        <strong style="font-size: 13px;">Categories:</strong>
+        <div id="categoryLegend"></div>
+    </div>
+</div>

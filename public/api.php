@@ -43,6 +43,7 @@ use Internet\Graph\Action\Restore\RestoreEntityAction;
 use Internet\Graph\Action\Restore\RestoreToTimestampAction;
 use Internet\Graph\Action\Status\GetAllNodeStatusesAction;
 use Internet\Graph\Action\Status\GetAllowedStatusesAction;
+use Internet\Graph\Action\Web\IndexAction;
 use Internet\Graph\Middleware\ExceptionHandlerMiddleware;
 use Internet\Graph\Middleware\ResponseTransformerMiddleware;
 
@@ -183,6 +184,9 @@ $app->add(new ExceptionHandlerMiddleware());
 // ============================================================================
 // ROUTES
 // ============================================================================
+
+// Web interface route
+$app->get('/', IndexAction::class);
 
 // Authentication routes - NEW PATTERN (Action classes)
 $app->group('/api.php/auth', function (RouteCollectorProxy $group) {
