@@ -1,432 +1,360 @@
 <?php declare(strict_types=1);
 
 /**
- * REST API for Graph library - Public Entry Point
+ * REST API for Graph library - Slim Framework Entry Point
  *
  * Authentication Modes:
  * 1. Anonymous - GET requests can be made without authentication
- *                Logged in audit trail as user 'anonymous'
- *
- * 2. Basic Auth - Username/password authentication for all operations
- *                 Configure users in $valid_users array below
- *
+ * 2. Basic Auth - Username/password authentication
  * 3. Bearer Token - Token-based authentication for automations
- *                   Configure tokens in $valid_bearer_tokens array below
  *
  * State-changing operations (POST, PUT, DELETE, PATCH) REQUIRE authentication.
- * Read-only operations (GET) can be performed anonymously.
  */
 
-require_once __DIR__ . '/../vendor/autoload.php';
-
+use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Http\Message\ServerRequestInterface as Request;
+use Slim\Factory\AppFactory;
+use Slim\Routing\RouteCollectorProxy;
 use Internet\Graph\Graph;
-use Internet\Graph\AuditContext;
 use Internet\Graph\ApiHandler;
 use Internet\Graph\Authenticator;
 use Internet\Graph\Config;
 use Internet\Graph\SessionManager;
+use Internet\Graph\AuditContext;
 
-// Load configuration from .env file
+require __DIR__ . '/../vendor/autoload.php';
+
+// Load configuration
 Config::load();
-
-// Start session
 SessionManager::start();
 
-// Get authentication configuration from environment
+// Create Slim app
+$app = AppFactory::create();
+$app->addRoutingMiddleware();
+
+// Add error middleware
+$errorMiddleware = $app->addErrorMiddleware(true, true, true);
+
+// Initialize dependencies
 $valid_bearer_tokens = Config::getAuthBearerTokens();
 $valid_users = Config::getAuthUsers();
-
-// Set headers for JSON API
-header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: ' . Config::get('CORS_ALLOWED_ORIGINS'));
-header('Access-Control-Allow-Methods: ' . Config::get('CORS_ALLOWED_METHODS'));
-header('Access-Control-Allow-Headers: ' . Config::get('CORS_ALLOWED_HEADERS'));
-
-// Handle preflight requests
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit;
-}
-
-// Initialize authenticator
 $authenticator = new Authenticator($valid_bearer_tokens, $valid_users);
 
-// Get request method
-$method = $_SERVER['REQUEST_METHOD'];
-
-// Get request path for early routing check
-$request_uri = $_SERVER['REQUEST_URI'];
-$path = parse_url($request_uri, PHP_URL_PATH);
-$base_path = dirname($_SERVER['SCRIPT_NAME']);
-if ($base_path !== '/') {
-    $path = substr($path, strlen($base_path));
-}
-$segments = array_values(array_filter(explode('/', $path)));
-
-// Check if this is a login request (exempt from auth requirement)
-$is_login_request = ($method === 'POST' && count($segments) >= 3 &&
-                     $segments[1] === 'auth' && $segments[2] === 'login');
-
-// Determine user ID from session or authenticate
-$user_id = null;
-
-// Check session first
-if (SessionManager::isAuthenticated()) {
-    $user_id = SessionManager::getUser();
+// Database setup
+$db_path = Config::get('DB_PATH');
+if (!str_starts_with($db_path, '/')) {
+    $db_file = realpath(__DIR__) . '/' . $db_path;
+    $db_file = str_replace('\\', '/', $db_file);
+    $parts = explode('/', $db_file);
+    $resolved = [];
+    foreach ($parts as $part) {
+        if ($part === '' || $part === '.') continue;
+        if ($part === '..') {
+            array_pop($resolved);
+        } else {
+            $resolved[] = $part;
+        }
+    }
+    $db_file = '/' . implode('/', $resolved);
 } else {
-    // Fall back to Basic Auth or Bearer Token
-    $user_id = $authenticator->authenticate();
+    $db_file = $db_path;
 }
 
-// Allow anonymous access for read-only operations (GET) and login endpoint
-// Require authentication for state-changing operations (POST, PUT, DELETE, PATCH)
-$is_read_only = ($method === 'GET');
-$requires_auth = !$is_read_only && !$is_login_request;
-
-if ($requires_auth && $user_id === null) {
-    http_response_code(401);
-    echo json_encode([
-        'error' => 'Authentication required',
-        'message' => 'Authentication is required for ' . $method . ' requests. Please login or provide valid Basic Auth credentials or Bearer token'
-    ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-    exit;
-}
-
-// If no authentication provided for read-only request, use 'anonymous'
-if ($user_id === null) {
-    $user_id = 'anonymous';
-}
-
-// Initialize audit context (stateless - no session)
-$ip_address = null;
-if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-    $ip_address = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0];
-} elseif (!empty($_SERVER['HTTP_X_REAL_IP'])) {
-    $ip_address = $_SERVER['HTTP_X_REAL_IP'];
-} elseif (!empty($_SERVER['REMOTE_ADDR'])) {
-    $ip_address = $_SERVER['REMOTE_ADDR'];
-}
-
-AuditContext::set($user_id, $ip_address);
-
-// Database file path from configuration
-$db_file = __DIR__ . '/' . Config::get('DB_PATH');
 $graph = new Graph($db_file);
 $api = new ApiHandler($graph);
 
-// Get JSON input for POST/PUT requests
-$input = null;
-if (in_array($method, ['POST', 'PUT', 'PATCH'])) {
-    $json = file_get_contents('php://input');
-    $input = json_decode($json, true);
-    if ($input === null && $json !== '') {
-        send_error(400, 'Invalid JSON input');
-    }
-}
+// ============================================================================
+// MIDDLEWARE
+// ============================================================================
 
-// CSRF Protection for state-changing operations from authenticated sessions
-// Skip CSRF for Bearer token auth (API automation) and login endpoint
-$is_session_auth = SessionManager::isAuthenticated();
-$is_state_changing = in_array($method, ['POST', 'PUT', 'DELETE', 'PATCH']);
-$requires_csrf = $is_session_auth && $is_state_changing && $user_id !== null;
+// CORS Middleware
+$app->add(function (Request $request, $handler) {
+    $response = $handler->handle($request);
+    return $response
+        ->withHeader('Access-Control-Allow-Origin', Config::get('CORS_ALLOWED_ORIGINS', '*'))
+        ->withHeader('Access-Control-Allow-Methods', Config::get('CORS_ALLOWED_METHODS', 'GET,POST,PUT,DELETE,OPTIONS'))
+        ->withHeader('Access-Control-Allow-Headers', Config::get('CORS_ALLOWED_HEADERS', 'Content-Type,Authorization,X-CSRF-Token'));
+});
 
-if ($requires_csrf) {
-    // Get CSRF token from header or input
-    $csrf_token = null;
-    if (isset($_SERVER['HTTP_X_CSRF_TOKEN'])) {
-        $csrf_token = $_SERVER['HTTP_X_CSRF_TOKEN'];
-    } elseif (isset($input['csrf_token'])) {
-        $csrf_token = $input['csrf_token'];
-    }
+// OPTIONS preflight handler
+$app->options('/{routes:.+}', function (Request $request, Response $response) {
+    return $response;
+});
 
-    // Validate CSRF token for all routes except login
-    $is_login_route = (count($segments) >= 3 && $segments[1] === 'auth' && $segments[2] === 'login');
-
-    if (!$is_login_route && !SessionManager::validateCsrfToken($csrf_token ?? '')) {
-        http_response_code(403);
-        echo json_encode([
-            'error' => 'CSRF token validation failed',
-            'message' => 'Please include a valid CSRF token in X-CSRF-Token header or request body'
-        ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-        exit;
-    }
-}
-
-// Helper functions
-function send_response(int $code, mixed $data): void {
-    http_response_code($code);
-    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-    exit;
-}
-
-function send_error(int $code, string $message, ?array $details = null): void {
-    $response = ['error' => $message];
-    if ($details !== null) {
-        $response['details'] = $details;
-    }
-    send_response($code, $response);
-}
-
-function send_success(mixed $data = null, string $message = 'Success'): void {
-    $response = ['success' => true, 'message' => $message];
-    if ($data !== null) {
-        $response['data'] = $data;
-    }
-    send_response(200, $response);
-}
-
-function handle_api_result(array $result): void {
-    if (isset($result['success']) && $result['success']) {
-        $code = 200;
-        if (isset($result['data'])) {
-            send_success($result['data'], $result['message'] ?? 'Success');
-        } else {
-            send_success(null, $result['message'] ?? 'Success');
-        }
+// Authentication Middleware
+$authMiddleware = function (Request $request, $handler) use ($authenticator) {
+    // Determine user ID
+    $user_id = null;
+    if (SessionManager::isAuthenticated()) {
+        $user_id = SessionManager::getUser();
     } else {
-        $code = $result['code'] ?? 500;
-        $details = $result['details'] ?? null;
-        send_error($code, $result['error'] ?? 'Operation failed', $details);
+        $user_id = $authenticator->authenticate();
+    }
+
+    // Allow anonymous for GET, require auth for state-changing operations
+    $method = $request->getMethod();
+    $path = $request->getUri()->getPath();
+    $isReadOnly = ($method === 'GET');
+    $isLoginRoute = ($path === '/api.php/auth/login');
+
+    if (!$isReadOnly && !$isLoginRoute && ($user_id === null || $user_id === 'anonymous')) {
+        $response = new \Slim\Psr7\Response();
+        $response->getBody()->write(json_encode([
+            'error' => 'Authentication required',
+            'message' => 'Authentication is required for ' . $method . ' requests'
+        ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+        return $response->withStatus(401)->withHeader('Content-Type', 'application/json');
+    }
+
+    if ($user_id === null) {
+        $user_id = 'anonymous';
+    }
+
+    // Initialize audit context
+    $ip_address = $request->getHeader('X-Forwarded-For')[0] ??
+                  $request->getHeader('X-Real-IP')[0] ??
+                  $request->getServerParams()['REMOTE_ADDR'] ?? null;
+    AuditContext::set($user_id, $ip_address);
+
+    // Store user_id in request attributes for handlers
+    $request = $request->withAttribute('user_id', $user_id);
+
+    return $handler->handle($request);
+};
+
+$app->add($authMiddleware);
+
+// CSRF Middleware
+$csrfMiddleware = function (Request $request, $handler) {
+    $isSessionAuth = SessionManager::isAuthenticated();
+    $isStateChanging = in_array($request->getMethod(), ['POST', 'PUT', 'DELETE', 'PATCH']);
+    $path = $request->getUri()->getPath();
+    $isLoginRoute = ($path === '/api.php/auth/login');
+
+    if ($isSessionAuth && $isStateChanging && !$isLoginRoute) {
+        $token = $request->getHeader('X-CSRF-Token')[0] ??
+                 $request->getParsedBody()['csrf_token'] ?? null;
+
+        if (!SessionManager::validateCsrfToken($token ?? '')) {
+            $response = new \Slim\Psr7\Response();
+            $response->getBody()->write(json_encode([
+                'error' => 'CSRF token validation failed',
+                'message' => 'Please include a valid CSRF token'
+            ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+            return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    return $handler->handle($request);
+};
+
+$app->add($csrfMiddleware);
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+function jsonResponse(Response $response, $data, int $status = 200): Response {
+    $response->getBody()->write(json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+    return $response->withStatus($status)->withHeader('Content-Type', 'application/json');
+}
+
+function handleApiResult(Response $response, array $result): Response {
+    if (isset($result['success']) && $result['success']) {
+        $data = ['success' => true, 'message' => $result['message'] ?? 'Success'];
+        if (isset($result['data'])) {
+            $data['data'] = $result['data'];
+        }
+        return jsonResponse($response, $data);
+    } else {
+        $data = ['error' => $result['error'] ?? 'Operation failed'];
+        if (isset($result['details'])) {
+            $data['details'] = $result['details'];
+        }
+        return jsonResponse($response, $data, $result['code'] ?? 500);
     }
 }
 
-// Route handling
-try {
-    // Authentication endpoints
-    if (count($segments) >= 2 && $segments[1] === 'auth') {
+// ============================================================================
+// ROUTES
+// ============================================================================
 
-        // POST /api.php/auth/login - Login with username/password
-        if ($method === 'POST' && count($segments) === 3 && $segments[2] === 'login') {
-            if (!isset($input['username']) || !isset($input['password'])) {
-                send_error(400, 'Missing username or password');
-            }
+// Authentication routes
+$app->group('/api.php/auth', function (RouteCollectorProxy $group) use ($valid_users) {
+    $group->post('/login', function (Request $request, Response $response) use ($valid_users) {
+        $body = $request->getParsedBody();
+        $username = $body['username'] ?? null;
+        $password = $body['password'] ?? null;
 
-            $username = $input['username'];
-            $password = $input['password'];
+        if (!$username || !$password) {
+            return jsonResponse($response, ['error' => 'Missing username or password'], 400);
+        }
 
-            // Validate credentials
-            if (isset($valid_users[$username]) && password_verify($password, $valid_users[$username])) {
-                SessionManager::setUser($username);
-                send_success([
+        if (isset($valid_users[$username]) && password_verify($password, $valid_users[$username])) {
+            SessionManager::setUser($username);
+            return jsonResponse($response, [
+                'success' => true,
+                'message' => 'Login successful',
+                'data' => [
                     'user' => $username,
                     'csrf_token' => SessionManager::getCsrfToken()
-                ], 'Login successful');
-            } else {
-                send_error(401, 'Invalid credentials');
-            }
-        }
-
-        // POST /api.php/auth/logout - Logout
-        if ($method === 'POST' && count($segments) === 3 && $segments[2] === 'logout') {
-            SessionManager::destroy();
-            send_success(null, 'Logout successful');
-        }
-
-        // GET /api.php/auth/status - Check authentication status
-        if ($method === 'GET' && count($segments) === 3 && $segments[2] === 'status') {
-            send_response(200, [
-                'authenticated' => SessionManager::isAuthenticated(),
-                'user' => SessionManager::getUser(),
-                'csrf_token' => SessionManager::isAuthenticated() ? SessionManager::getCsrfToken() : null
+                ]
             ]);
         }
 
-        // GET /api.php/auth/csrf - Get CSRF token
-        if ($method === 'GET' && count($segments) === 3 && $segments[2] === 'csrf') {
-            if (!SessionManager::isAuthenticated()) {
-                send_error(401, 'Not authenticated');
-            }
-            send_response(200, ['csrf_token' => SessionManager::getCsrfToken()]);
+        return jsonResponse($response, ['error' => 'Invalid credentials'], 401);
+    });
+
+    $group->post('/logout', function (Request $request, Response $response) {
+        SessionManager::destroy();
+        return jsonResponse($response, ['success' => true, 'message' => 'Logout successful']);
+    });
+
+    $group->get('/status', function (Request $request, Response $response) {
+        return jsonResponse($response, [
+            'authenticated' => SessionManager::isAuthenticated(),
+            'user' => SessionManager::getUser(),
+            'csrf_token' => SessionManager::isAuthenticated() ? SessionManager::getCsrfToken() : null
+        ]);
+    });
+
+    $group->get('/csrf', function (Request $request, Response $response) {
+        if (!SessionManager::isAuthenticated()) {
+            return jsonResponse($response, ['error' => 'Not authenticated'], 401);
         }
-    }
+        return jsonResponse($response, ['csrf_token' => SessionManager::getCsrfToken()]);
+    });
+});
 
-    // GET /api.php/graph - Get entire graph
-    if ($method === 'GET' && count($segments) === 1 && $segments[0] === 'api.php') {
-        send_response(200, $api->getGraph());
-    }
+// Graph routes
+$app->get('/api.php', function (Request $request, Response $response) use ($api) {
+    return jsonResponse($response, $api->getGraph());
+});
 
-    if ($method === 'GET' && count($segments) === 2 && $segments[0] === 'api.php' && $segments[1] === 'graph') {
-        send_response(200, $api->getGraph());
-    }
+$app->get('/api.php/graph', function (Request $request, Response $response) use ($api) {
+    return jsonResponse($response, $api->getGraph());
+});
 
-    // Node operations
-    if (count($segments) >= 2 && $segments[1] === 'nodes') {
-
-        // POST /api.php/nodes - Create node
-        if ($method === 'POST' && count($segments) === 2) {
-            if (!isset($input['id']) || !isset($input['data'])) {
-                send_error(400, 'Missing required fields: id, data');
-            }
-
-            $result = $api->createNode($input['id'], $input['data']);
-            handle_api_result($result);
+// Node routes
+$app->group('/api.php/nodes', function (RouteCollectorProxy $group) use ($api) {
+    $group->post('', function (Request $request, Response $response) use ($api) {
+        $body = $request->getParsedBody();
+        if (!isset($body['id']) || !isset($body['data'])) {
+            return jsonResponse($response, ['error' => 'Missing required fields: id, data'], 400);
         }
+        $result = $api->createNode($body['id'], $body['data']);
+        return handleApiResult($response, $result);
+    });
 
-        // GET /api.php/nodes/{id} - Check if node exists
-        if ($method === 'GET' && count($segments) === 3) {
-            $id = urldecode($segments[2]);
-            send_response(200, $api->nodeExists($id));
+    $group->get('/{id}', function (Request $request, Response $response, array $args) use ($api) {
+        return jsonResponse($response, $api->nodeExists(urldecode($args['id'])));
+    });
+
+    $group->put('/{id}', function (Request $request, Response $response, array $args) use ($api) {
+        $body = $request->getParsedBody();
+        if (!isset($body['data'])) {
+            return jsonResponse($response, ['error' => 'Missing required field: data'], 400);
         }
+        $result = $api->updateNode(urldecode($args['id']), $body['data']);
+        return handleApiResult($response, $result);
+    });
 
-        // PUT /api.php/nodes/{id} - Update node
-        if ($method === 'PUT' && count($segments) === 3) {
-            $id = urldecode($segments[2]);
+    $group->delete('/{id}', function (Request $request, Response $response, array $args) use ($api) {
+        $result = $api->removeNode(urldecode($args['id']));
+        return handleApiResult($response, $result);
+    });
 
-            if (!isset($input['data'])) {
-                send_error(400, 'Missing required field: data');
-            }
+    // Node status routes
+    $group->get('/{id}/status', function (Request $request, Response $response, array $args) use ($api) {
+        $result = $api->getNodeStatus(urldecode($args['id']));
+        return handleApiResult($response, $result);
+    });
 
-            $result = $api->updateNode($id, $input['data']);
-            handle_api_result($result);
+    $group->get('/{id}/status/history', function (Request $request, Response $response, array $args) use ($api) {
+        return jsonResponse($response, $api->getNodeStatusHistory(urldecode($args['id'])));
+    });
+
+    $group->post('/{id}/status', function (Request $request, Response $response, array $args) use ($api) {
+        $body = $request->getParsedBody();
+        if (!isset($body['status'])) {
+            return jsonResponse($response, ['error' => 'Missing required field: status'], 400);
         }
+        $result = $api->setNodeStatus(urldecode($args['id']), $body['status']);
+        return handleApiResult($response, $result);
+    });
+});
 
-        // DELETE /api.php/nodes/{id} - Remove node
-        if ($method === 'DELETE' && count($segments) === 3) {
-            $id = urldecode($segments[2]);
-            $result = $api->removeNode($id);
-            handle_api_result($result);
+// Edge routes
+$app->group('/api.php/edges', function (RouteCollectorProxy $group) use ($api) {
+    $group->post('', function (Request $request, Response $response) use ($api) {
+        $body = $request->getParsedBody();
+        if (!isset($body['id']) || !isset($body['source']) || !isset($body['target'])) {
+            return jsonResponse($response, ['error' => 'Missing required fields: id, source, target'], 400);
         }
-    }
+        $result = $api->createEdge($body['id'], $body['source'], $body['target'], $body['data'] ?? []);
+        return handleApiResult($response, $result);
+    });
 
-    // Edge operations
-    if (count($segments) >= 2 && $segments[1] === 'edges') {
+    $group->get('/{id}', function (Request $request, Response $response, array $args) use ($api) {
+        return jsonResponse($response, $api->edgeExists(urldecode($args['id'])));
+    });
 
-        // POST /api.php/edges - Create edge
-        if ($method === 'POST' && count($segments) === 2) {
-            if (!isset($input['id']) || !isset($input['source']) || !isset($input['target'])) {
-                send_error(400, 'Missing required fields: id, source, target');
-            }
+    $group->delete('/{id}', function (Request $request, Response $response, array $args) use ($api) {
+        $result = $api->removeEdge(urldecode($args['id']));
+        return handleApiResult($response, $result);
+    });
 
-            $data = $input['data'] ?? [];
-            $result = $api->createEdge($input['id'], $input['source'], $input['target'], $data);
-            handle_api_result($result);
+    $group->delete('/from/{source}', function (Request $request, Response $response, array $args) use ($api) {
+        $result = $api->removeEdgesFrom(urldecode($args['source']));
+        return handleApiResult($response, $result);
+    });
+});
+
+// Backup routes
+$app->post('/api.php/backup', function (Request $request, Response $response) use ($api) {
+    $body = $request->getParsedBody();
+    $result = $api->createBackup($body['name'] ?? null);
+    return handleApiResult($response, $result);
+});
+
+// Audit routes
+$app->get('/api.php/audit', function (Request $request, Response $response) use ($api) {
+    $params = $request->getQueryParams();
+    return jsonResponse($response, $api->getAuditHistory(
+        $params['entity_type'] ?? null,
+        $params['entity_id'] ?? null
+    ));
+});
+
+// Restore routes
+$app->group('/api.php/restore', function (RouteCollectorProxy $group) use ($api) {
+    $group->post('/entity', function (Request $request, Response $response) use ($api) {
+        $body = $request->getParsedBody();
+        if (!isset($body['entity_type']) || !isset($body['entity_id']) || !isset($body['audit_log_id'])) {
+            return jsonResponse($response, ['error' => 'Missing required fields'], 400);
         }
+        $result = $api->restoreEntity($body['entity_type'], $body['entity_id'], (int)$body['audit_log_id']);
+        return handleApiResult($response, $result);
+    });
 
-        // GET /api.php/edges/{id} - Check if edge exists
-        if ($method === 'GET' && count($segments) === 3) {
-            $id = urldecode($segments[2]);
-            send_response(200, $api->edgeExists($id));
+    $group->post('/timestamp', function (Request $request, Response $response) use ($api) {
+        $body = $request->getParsedBody();
+        if (!isset($body['timestamp'])) {
+            return jsonResponse($response, ['error' => 'Missing required field: timestamp'], 400);
         }
+        $result = $api->restoreToTimestamp($body['timestamp']);
+        return handleApiResult($response, $result);
+    });
+});
 
-        // DELETE /api.php/edges/{id} - Remove edge
-        if ($method === 'DELETE' && count($segments) === 3) {
-            $id = urldecode($segments[2]);
-            $result = $api->removeEdge($id);
-            handle_api_result($result);
-        }
+// Status routes
+$app->get('/api.php/status', function (Request $request, Response $response) use ($api) {
+    return jsonResponse($response, $api->getAllNodeStatuses());
+});
 
-        // DELETE /api.php/edges/from/{source} - Remove all edges from source
-        if ($method === 'DELETE' && count($segments) === 4 && $segments[2] === 'from') {
-            $source = urldecode($segments[3]);
-            $result = $api->removeEdgesFrom($source);
-            handle_api_result($result);
-        }
-    }
+$app->get('/api.php/status/allowed', function (Request $request, Response $response) use ($api) {
+    return jsonResponse($response, $api->getAllowedStatuses());
+});
 
-    // Backup operations
-    if (count($segments) >= 2 && $segments[1] === 'backup') {
-
-        // POST /api.php/backup - Create backup
-        if ($method === 'POST' && count($segments) === 2) {
-            $backup_name = $input['name'] ?? null;
-            $result = $api->createBackup($backup_name);
-            handle_api_result($result);
-        }
-    }
-
-    // Audit operations
-    if (count($segments) >= 2 && $segments[1] === 'audit') {
-
-        // GET /api.php/audit - Get audit history
-        // Optional query params: entity_type, entity_id
-        if ($method === 'GET' && count($segments) === 2) {
-            $entity_type = $_GET['entity_type'] ?? null;
-            $entity_id = $_GET['entity_id'] ?? null;
-
-            send_response(200, $api->getAuditHistory($entity_type, $entity_id));
-        }
-    }
-
-    // Restore operations
-    if (count($segments) >= 2 && $segments[1] === 'restore') {
-
-        // POST /api.php/restore/entity - Restore specific entity
-        if ($method === 'POST' && count($segments) === 3 && $segments[2] === 'entity') {
-            if (!isset($input['entity_type']) || !isset($input['entity_id']) || !isset($input['audit_log_id'])) {
-                send_error(400, 'Missing required fields: entity_type, entity_id, audit_log_id');
-            }
-
-            $result = $api->restoreEntity(
-                $input['entity_type'],
-                $input['entity_id'],
-                (int)$input['audit_log_id']
-            );
-            handle_api_result($result);
-        }
-
-        // POST /api.php/restore/timestamp - Restore to timestamp
-        if ($method === 'POST' && count($segments) === 3 && $segments[2] === 'timestamp') {
-            if (!isset($input['timestamp'])) {
-                send_error(400, 'Missing required field: timestamp');
-            }
-
-            $result = $api->restoreToTimestamp($input['timestamp']);
-            handle_api_result($result);
-        }
-    }
-
-    // Status operations
-    if (count($segments) >= 2 && $segments[1] === 'status') {
-
-        // GET /api.php/status - Get all node statuses
-        if ($method === 'GET' && count($segments) === 2) {
-            send_response(200, $api->getAllNodeStatuses());
-        }
-
-        // GET /api.php/status/allowed - Get allowed status values
-        if ($method === 'GET' && count($segments) === 3 && $segments[2] === 'allowed') {
-            send_response(200, $api->getAllowedStatuses());
-        }
-    }
-
-    // Node status operations (within nodes routes)
-    if (count($segments) >= 2 && $segments[1] === 'nodes') {
-
-        // GET /api.php/nodes/{id}/status - Get node status
-        if ($method === 'GET' && count($segments) === 4 && $segments[3] === 'status') {
-            $id = urldecode($segments[2]);
-            $result = $api->getNodeStatus($id);
-
-            if (isset($result['success']) && $result['success']) {
-                send_response(200, $result['data']);
-            } else {
-                handle_api_result($result);
-            }
-        }
-
-        // GET /api.php/nodes/{id}/status/history - Get node status history
-        if ($method === 'GET' && count($segments) === 5 && $segments[3] === 'status' && $segments[4] === 'history') {
-            $id = urldecode($segments[2]);
-            send_response(200, $api->getNodeStatusHistory($id));
-        }
-
-        // POST /api.php/nodes/{id}/status - Set node status
-        if ($method === 'POST' && count($segments) === 4 && $segments[3] === 'status') {
-            $id = urldecode($segments[2]);
-
-            if (!isset($input['status'])) {
-                send_error(400, 'Missing required field: status');
-            }
-
-            $result = $api->setNodeStatus($id, $input['status']);
-            handle_api_result($result);
-        }
-    }
-
-    // If no route matched
-    send_error(404, 'Endpoint not found', ['path' => $path, 'method' => $method]);
-
-} catch (Exception $e) {
-    error_log("API Error: " . $e->getMessage());
-    send_error(500, 'Internal server error', ['message' => $e->getMessage()]);
-}
+// Run app
+$app->run();

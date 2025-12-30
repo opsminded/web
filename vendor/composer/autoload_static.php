@@ -8,17 +8,33 @@ class ComposerStaticInita145d6f0bde12cfb8711110287e36582
 {
     public static $files = array (
         '6124b4c8570aa390c21fafd04a26c69f' => __DIR__ . '/..' . '/myclabs/deep-copy/src/DeepCopy/deep_copy.php',
+        '253c157292f75eb38082b5acb06f3f01' => __DIR__ . '/..' . '/nikic/fast-route/src/functions.php',
+        '7b11c4dc42b3b3023073cb14e519683c' => __DIR__ . '/..' . '/ralouphie/getallheaders/src/getallheaders.php',
         'ec07570ca5a812141189b1fa81503674' => __DIR__ . '/..' . '/phpunit/phpunit/src/Framework/Assert/Functions.php',
     );
 
     public static $prefixLengthsPsr4 = array (
+        'S' =>
+        array (
+            'Slim\\Psr7\\' => 10,
+            'Slim\\' => 5,
+        ),
         'P' =>
         array (
+            'Psr\\Log\\' => 8,
+            'Psr\\Http\\Server\\' => 16,
+            'Psr\\Http\\Message\\' => 17,
+            'Psr\\Container\\' => 14,
             'PhpParser\\' => 10,
         ),
         'I' =>
         array (
             'Internet\\Graph\\' => 15,
+        ),
+        'F' =>
+        array (
+            'Fig\\Http\\Message\\' => 17,
+            'FastRoute\\' => 10,
         ),
         'D' =>
         array (
@@ -27,6 +43,32 @@ class ComposerStaticInita145d6f0bde12cfb8711110287e36582
     );
 
     public static $prefixDirsPsr4 = array (
+        'Slim\\Psr7\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/slim/psr7/src',
+        ),
+        'Slim\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/slim/slim/Slim',
+        ),
+        'Psr\\Log\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/psr/log/src',
+        ),
+        'Psr\\Http\\Server\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/psr/http-server-middleware/src',
+            1 => __DIR__ . '/..' . '/psr/http-server-handler/src',
+        ),
+        'Psr\\Http\\Message\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/psr/http-factory/src',
+            1 => __DIR__ . '/..' . '/psr/http-message/src',
+        ),
+        'Psr\\Container\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/psr/container/src',
+        ),
         'PhpParser\\' =>
         array (
             0 => __DIR__ . '/..' . '/nikic/php-parser/lib/PhpParser',
@@ -34,6 +76,14 @@ class ComposerStaticInita145d6f0bde12cfb8711110287e36582
         'Internet\\Graph\\' =>
         array (
             0 => __DIR__ . '/../..' . '/src',
+        ),
+        'Fig\\Http\\Message\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/fig/http-message-util/src',
+        ),
+        'FastRoute\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/nikic/fast-route/src',
         ),
         'DeepCopy\\' =>
         array (

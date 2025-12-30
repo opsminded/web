@@ -203,12 +203,15 @@ chmod 600 ~/.ssh/id_rsa
 **Stateless API**: No sessions, all operations are atomic. Authentication uses Bearer tokens or Basic Auth, tracked via `AuditContext` singleton for request-scoped user/IP tracking.
 
 **Layered Architecture**:
-- `public/api.php`: Entry point, routing, authentication, HTTP handling
+- `public/api.php`: Entry point, Slim Framework app initialization, routing, middleware
+- `Slim Framework`: HTTP routing, PSR-7 request/response handling, middleware pipeline
 - `ApiHandler`: Business logic layer, validation, response formatting
 - `Graph`: Domain logic layer, audit logging, transaction coordination
 - `GraphDatabase`: Data access layer, SQL operations, schema management
 
-**Separation of Concerns**: Recently refactored to split database operations into `GraphDatabase` class (see commit 35f0afa). All SQL operations now live in `GraphDatabase`, while `Graph` handles business logic and audit logging.
+**Separation of Concerns**:
+- Routing uses **Slim Framework 4** (Dec 2025): Industry-standard micro-framework for REST APIs with PSR-7 HTTP messages
+- Database operations split into `GraphDatabase` class (commit 35f0afa): All SQL operations in `GraphDatabase`, business logic in `Graph`
 
 ### Key Classes
 
@@ -242,17 +245,89 @@ chmod 600 ~/.ssh/id_rsa
 - Authentication credentials are stored in `.env`, not hardcoded
 - Use `.env.example` as template
 
+**Slim Framework 4**:
+- Industry-standard micro-framework for building REST APIs
+- PSR-7 HTTP message interfaces (Request/Response)
+- FastRoute for efficient URL routing
+- Middleware pipeline for cross-cutting concerns
+- Dependency: `slim/slim:^4.0` and `slim/psr7:^1.6`
+- Documentation: https://www.slimframework.com/docs/v4/
+
+### Adding New Routes
+
+To add a new API endpoint, edit `public/api.php` and add a route definition:
+
+**Simple route:**
+```php
+$app->get('/api.php/my/route', function (Request $request, Response $response) use ($api) {
+    $data = $api->myMethod();
+    return jsonResponse($response, $data);
+});
+```
+
+**Route with parameters:**
+```php
+$app->post('/api.php/my/{id}/action', function (Request $request, Response $response, array $args) use ($api) {
+    $id = urldecode($args['id']);  // URL decode parameter
+    $body = $request->getParsedBody();  // Get JSON body
+    $result = $api->myMethod($id, $body['field']);
+    return handleApiResult($response, $result);
+});
+```
+
+**Grouped routes:**
+```php
+$app->group('/api.php/my', function (RouteCollectorProxy $group) use ($api) {
+    $group->get('', function (Request $request, Response $response) use ($api) {
+        // GET /api.php/my
+    });
+
+    $group->post('/{id}', function (Request $request, Response $response, array $args) use ($api) {
+        // POST /api.php/my/{id}
+    });
+});
+```
+
+Then add the handler method to `ApiHandler`:
+
+```php
+public function myMethod(string $id, string $field): array {
+    // Business logic here
+    return ['success' => true, 'data' => ['id' => $id, 'field' => $field]];
+}
+```
+
+**Slim Route Patterns:**
+- Use `{param}` for dynamic segments (e.g., `/nodes/{id}`)
+- Parameters are automatically extracted into `$args` array
+- Always `urldecode()` parameters that might contain special characters
+- Use `$request->getParsedBody()` for JSON body
+- Use `$request->getQueryParams()` for query strings
+- Return `Response` object with proper status code
+
+**Response Helpers:**
+- `jsonResponse($response, $data, $status)`: Returns JSON response
+- `handleApiResult($response, $result)`: Handles ApiHandler result format (success/error)
+
 ### Data Flow
 
 1. **Request arrives** at `public/api.php`
-2. **Authentication** via `Authenticator` (Bearer token or Basic Auth)
-3. **AuditContext initialized** with authenticated user and IP
-4. **Route parsing** and dispatch to `ApiHandler` method
-5. **ApiHandler validates** input and calls `Graph` method
-6. **Graph coordinates** business logic, calls `GraphDatabase` operations
-7. **Graph logs** operation to audit trail (if state-changing)
-8. **ApiHandler formats** response with success/error structure
-9. **Response sent** as JSON with appropriate HTTP status code
+2. **Slim app initializes**: Config loaded, session started, dependencies created
+3. **Routing middleware** parses request and matches route (FastRoute)
+4. **Error middleware** configured for exception handling
+5. **Middleware pipeline executes** (in reverse order of `add()` calls):
+   - **CSRF middleware** validates tokens for session-authenticated state-changing requests
+   - **Auth middleware** checks authentication, initializes AuditContext
+   - **CORS middleware** applies headers to response
+   - **OPTIONS handler** returns early for preflight requests
+6. **Route handler executes**: Matched route closure runs with `$request`, `$response`, `$args`
+7. **ApiHandler validates** input and calls `Graph` method
+8. **Graph coordinates** business logic, calls `GraphDatabase` operations
+9. **Graph logs** operation to audit trail (if state-changing)
+10. **ApiHandler returns** result array
+11. **Route handler formats** result as PSR-7 Response (using `jsonResponse()` or `handleApiResult()`)
+12. **Middleware pipeline unwinds**: CORS headers applied to final response
+13. **Slim app emits** response with HTTP status code, headers, and JSON body
 
 ### Database Schema
 
@@ -287,16 +362,24 @@ Indexes exist on:
 ### Testing Approach
 
 - Each class has corresponding test file: `GraphTest`, `ApiHandlerTest`, `GraphDatabaseTest`, `AuthenticatorTest`, `AuditContextTest`
+- Tests focus on business logic and data layer, not routing (Slim Framework handles routing, well-tested)
 - Tests use temporary SQLite databases (`graph_test_*.db`) created in `setUp()`, deleted in `tearDown()`
 - Use `@codeCoverageIgnore` for exception paths that are difficult to trigger (PDO errors, filesystem failures)
 - Transaction rollback paths are typically covered in happy path tests by checking final state
 - Test naming: `test_<operation>_<scenario>` (e.g., `test_add_node_success`, `test_add_node_duplicate`)
+- Run all tests: `php phpunit.phar` (164 tests, 402 assertions as of Dec 2025 with Slim Framework)
+- API endpoint testing done via manual `curl` commands or integration tests hitting the Slim app
 
 ### Common Gotchas
 
 1. **Don't call GraphDatabase directly from ApiHandler**: Always use `Graph` as intermediary
-2. **Initialize AuditContext**: Must call `AuditContext::set($user, $ip)` before any Graph operations that log
+2. **Initialize AuditContext**: Auth middleware initializes this automatically, but ensure it's called before Graph operations
 3. **JSON encoding**: `GraphDatabase` stores/returns JSON strings in 'data' fields; `Graph` and `ApiHandler` work with decoded arrays
 4. **Node ID duplication**: The node ID exists both as table primary key AND inside the JSON data field (by design)
 5. **Foreign key constraints**: Edges cannot reference non-existent nodes; will throw constraint violation
 6. **Status values**: Only use values from `NodeStatus::ALLOWED_VALUES`: unknown, healthy, unhealthy, maintenance
+7. **Slim route ordering**: Slim matches routes in definition order. Define more specific routes before generic ones (e.g., `/nodes/{id}/status/history` before `/nodes/{id}/status`)
+8. **URL decode parameters**: Always `urldecode($args['id'])` when extracting route parameters that might contain special characters
+9. **ApiHandler response formats**: Some methods return direct data (e.g., `getGraph()`), others return success/error format (e.g., `createNode()`). Use `handleApiResult()` for success/error format, `jsonResponse()` for direct data.
+10. **Middleware order in Slim**: Middleware executes in REVERSE order of `$app->add()` calls. Last added = first executed. CORS should be added first (executes last) to apply headers to all responses.
+11. **PSR-7 responses are immutable**: Always return the modified response: `return $response->withHeader(...)`, not just `$response->withHeader(...)`
