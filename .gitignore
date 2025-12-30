@@ -3,10 +3,21 @@ composer.phar
 coverrep/
 .phpunit.cache/
 ./coverrep/
+
+# Environment configuration
 .env
+public/dev/.env
+public/qa/.env
+public/prod/.env
+
+# Databases
 graph.db
+data/dev/
+data/qa/
+data/prod/
+
+# Backups
 backups/
-graph.db
 
 # Deployment
 deploy.config
